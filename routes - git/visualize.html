@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Driver-User Assignment Map</title>
+  <style>
+    #map {
+      height: 100vh;
+      width: 100%;
+    }
+    #controls {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: white;
+      padding: 10px;
+      border-radius: 6px;
+      z-index: 5;
+      max-width: 240px;
+      font-size: 14px;
+    }
+    .toggle-btn, .filter-input, .dropdown {
+      margin: 5px 0;
+      display: block;
+      width: 100%;
+    }
+    #stats {
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div id="controls">
+    <input class="filter-input" type="text" id="filterInput" placeholder="Filter by ID..." oninput="filterMarkers()">
+    <select class="dropdown" id="clusterSelect" onchange="filterCluster()">
+      <option value="all">All Clusters</option>
+    </select>
+    <button class="toggle-btn" onclick="toggleUsers()">Toggle Users</button>
+    <button class="toggle-btn" onclick="toggleDrivers()">Toggle Drivers</button>
+    <button class="toggle-btn" onclick="exportMap()">Export Map as Image</button>
+    <div id="stats"></div>
+  </div>
+  <div id="map"></div>
+
+  <script>
+    const dataUrl = "http://localhost:8000/routes";
+    let map;
+    let userMarkers = [];
+    let driverMarkers = [];
+    let routeLines = [];
+    let allRoutes = [];
+    let officeMarker;
+
+    function initMap() {
+      map = new google.maps.Map(document.getElementById("map"), {
+        center: { lat: 30.681, lng: 76.726 },
+        zoom: 12,
+      });
+
+      officeMarker = new google.maps.Marker({
+        position: { lat: 30.6810489, lng: 76.7260711 },
+        map,
+        title: "Office",
+        icon: {
+          url: "http://maps.google.com/mapfiles/ms/icons/red-dot.png"
+        }
+      });
+
+      fetch(dataUrl)
+        .then(res => res.json())
+        .then(routes => {
+          allRoutes = routes;
+          populateClusterDropdown(routes);
+          renderMap(routes);
+        });
+    }
+
+    function populateClusterDropdown(routes) {
+      const select = document.getElementById("clusterSelect");
+      select.innerHTML = '<option value="all">All Clusters</option>';
+      for (let i = 0; i < routes.length; i++) {
+        const option = document.createElement("option");
+        option.value = i;
+        option.text = `Cluster ${i + 1}`;
+        select.appendChild(option);
+      }
+    }
+
+    function renderMap(routes) {
+      clearMap();
+      let totalUsers = 0;
+      let totalDrivers = routes.length;
+
+      routes.forEach((driver, index) => {
+        const dLat = parseFloat(driver.latitude);
+        const dLng = parseFloat(driver.longitude);
+
+        const driverMarker = new google.maps.Marker({
+          position: { lat: dLat, lng: dLng },
+          map,
+          title: `Driver ${driver.driver_id}`,
+          icon: {
+            url: "http://maps.google.com/mapfiles/kml/shapes/cabs.png",
+            scaledSize: new google.maps.Size(40, 40),
+          },
+        });
+
+        const driverInfo = `Driver ID: ${driver.driver_id}<br>Vehicle: ${driver.vehicle_id}<br>Lat: ${dLat.toFixed(4)}<br>Lng: ${dLng.toFixed(4)}`;
+        const driverInfowindow = new google.maps.InfoWindow({ content: driverInfo });
+        driverMarker.addListener("mouseover", () => driverInfowindow.open(map, driverMarker));
+        driverMarker.addListener("mouseout", () => driverInfowindow.close());
+        driverMarkers.push(driverMarker);
+
+        driver.assigned_users.forEach((user) => {
+          const uLat = parseFloat(user.lat);
+          const uLng = parseFloat(user.lng);
+          totalUsers++;
+
+          const userMarker = new google.maps.Marker({
+            position: { lat: uLat, lng: uLng },
+            map,
+            title: `User ${user.user_id}`,
+            icon: {
+              path: google.maps.SymbolPath.CIRCLE,
+              scale: 6,
+              fillColor: colorByCluster(index),
+              fillOpacity: 1,
+              strokeWeight: 0,
+            },
+          });
+
+          const userInfo = `User ID: ${user.user_id}<br>Distance: ${user.office_distance} km<br>Lat: ${uLat.toFixed(4)}<br>Lng: ${uLng.toFixed(4)}`;
+          const userInfowindow = new google.maps.InfoWindow({ content: userInfo });
+          userMarker.addListener("mouseover", () => userInfowindow.open(map, userMarker));
+          userMarker.addListener("mouseout", () => userInfowindow.close());
+          userMarkers.push(userMarker);
+
+          const directionsService = new google.maps.DirectionsService();
+          const directionsRenderer = new google.maps.DirectionsRenderer({
+            suppressMarkers: true,
+            preserveViewport: true,
+            polylineOptions: {
+              strokeColor: colorByCluster(index),
+              strokeOpacity: 0.6,
+              strokeWeight: 4,
+            },
+          });
+          directionsRenderer.setMap(map);
+
+          directionsService.route({
+            origin: { lat: uLat, lng: uLng },
+            destination: { lat: dLat, lng: dLng },
+            travelMode: google.maps.TravelMode.DRIVING,
+          }, (response, status) => {
+            if (status === "OK") {
+              directionsRenderer.setDirections(response);
+              routeLines.push(directionsRenderer);
+            }
+          });
+        });
+      });
+
+      document.getElementById("stats").innerHTML = `👤 Users: <b>${totalUsers}</b><br>🚗 Drivers: <b>${totalDrivers}</b>`;
+    }
+
+    function filterMarkers() {
+      const query = document.getElementById("filterInput").value.toLowerCase();
+      const filtered = allRoutes.filter(d =>
+        d.driver_id.toLowerCase().includes(query) ||
+        d.assigned_users.some(u => u.user_id.toLowerCase().includes(query))
+      );
+      renderMap(filtered);
+    }
+
+    function filterCluster() {
+      const clusterId = document.getElementById("clusterSelect").value;
+      if (clusterId === "all") {
+        renderMap(allRoutes);
+      } else {
+        renderMap([allRoutes[parseInt(clusterId)]]);
+      }
+    }
+
+    function clearMap() {
+      [...userMarkers, ...driverMarkers].forEach(marker => marker.setMap(null));
+      routeLines.forEach(renderer => renderer.setMap(null));
+      userMarkers = [];
+      driverMarkers = [];
+      routeLines = [];
+    }
+
+    function colorByCluster(clusterId) {
+      const colors = ["#FF5733", "#33FF57", "#3357FF", "#FF33A1", "#FFC733", "#33FFF0"];
+      return colors[clusterId % colors.length];
+    }
+
+    function toggleUsers() {
+      userMarkers.forEach(marker => marker.setMap(marker.getMap() ? null : map));
+      routeLines.forEach(renderer => renderer.setMap(renderer.getMap() ? null : map));
+    }
+
+    function toggleDrivers() {
+      driverMarkers.forEach(marker => marker.setMap(marker.getMap() ? null : map));
+    }
+
+    function exportMap() {
+      html2canvas(document.getElementById("map")).then(canvas => {
+        const link = document.createElement("a");
+        link.download = "map_snapshot.png";
+        link.href = canvas.toDataURL();
+        link.click();
+      });
+    }
+  </script>
+
+  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAjESclgKTCpmdmHKc7bzCKIQtYe_vIbb4&libraries=places&callback=initMap&libraries=places" async defer></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+</body>
+</html>
