@@ -1,8 +1,10 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from assignment import run_assignment
+import os
 
 app = FastAPI()
 
@@ -43,4 +45,15 @@ def assign_drivers(source_id: str):
 
 @app.get("/routes")
 def get_routes():
-    return FileResponse("drivers_and_routes.json", media_type="application/json")
+    if os.path.exists("drivers_and_routes.json"):
+        return FileResponse("drivers_and_routes.json", media_type="application/json")
+    else:
+        return {"status": "false", "message": "No routes data available. Run assignment first.", "data": []}
+
+@app.get("/visualize", response_class=HTMLResponse)
+def get_visualization():
+    return FileResponse("visualize.html")
+
+@app.get("/")
+def root():
+    return {"message": "Driver Assignment API", "endpoints": ["/assign-drivers/{source_id}", "/routes", "/visualize", "/health"]}
