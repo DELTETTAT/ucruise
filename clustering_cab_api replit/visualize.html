@@ -1,0 +1,962 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced Driver-User Assignment Dashboard</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        .dashboard {
+            display: grid;
+            grid-template-columns: 320px 1fr;
+            height: 100vh;
+        }
+
+        .sidebar {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(20px);
+            border-right: 1px solid rgba(255, 255, 255, 0.2);
+            padding: 20px;
+            overflow-y: auto;
+            box-shadow: 2px 0 20px rgba(0, 0, 0, 0.1);
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #f0f0f0;
+        }
+
+        .header h1 {
+            color: #2d3748;
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-bottom: 5px;
+        }
+
+        .header p {
+            color: #718096;
+            font-size: 0.9rem;
+        }
+
+        .control-section {
+            margin-bottom: 25px;
+        }
+
+        .control-section h3 {
+            color: #2d3748;
+            font-size: 1rem;
+            font-weight: 600;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .control-group {
+            margin-bottom: 15px;
+        }
+
+        .control-group label {
+            display: block;
+            color: #4a5568;
+            font-size: 0.85rem;
+            font-weight: 500;
+            margin-bottom: 5px;
+        }
+
+        .form-control {
+            width: 100%;
+            padding: 10px 12px;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            transition: all 0.2s ease;
+            background: white;
+        }
+
+        .form-control:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .btn {
+            width: 100%;
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-secondary {
+            background: #f7fafc;
+            color: #4a5568;
+            border: 2px solid #e2e8f0;
+        }
+
+        .btn-secondary:hover {
+            background: #edf2f7;
+            border-color: #cbd5e0;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .stat-card {
+            background: white;
+            padding: 15px;
+            border-radius: 12px;
+            text-align: center;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+            border: 1px solid #f0f0f0;
+        }
+
+        .stat-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #2d3748;
+            margin-bottom: 5px;
+        }
+
+        .stat-label {
+            font-size: 0.8rem;
+            color: #718096;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .analytics-section {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+        }
+
+        .analytics-section h4 {
+            color: #2d3748;
+            font-size: 1rem;
+            font-weight: 600;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .metric-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px solid #f0f0f0;
+        }
+
+        .metric-item:last-child {
+            border-bottom: none;
+        }
+
+        .metric-label {
+            font-size: 0.85rem;
+            color: #4a5568;
+        }
+
+        .metric-value {
+            font-weight: 600;
+            color: #2d3748;
+        }
+
+        .map-container {
+            position: relative;
+            height: 100vh;
+            background: #f8fafc;
+        }
+
+        #map {
+            width: 100%;
+            height: 100%;
+            border-radius: 0;
+        }
+
+        .map-legend {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(20px);
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            min-width: 200px;
+        }
+
+        .legend-title {
+            font-weight: 600;
+            color: #2d3748;
+            margin-bottom: 10px;
+            font-size: 0.9rem;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 8px;
+            font-size: 0.85rem;
+            color: #4a5568;
+        }
+
+        .legend-color {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        .loading-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255, 255, 255, 0.9);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            backdrop-filter: blur(5px);
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 60px;
+            height: 34px;
+        }
+
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: .4s;
+            border-radius: 34px;
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 26px;
+            width: 26px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+
+        input:checked + .slider {
+            background-color: #667eea;
+        }
+
+        input:checked + .slider:before {
+            transform: translateX(26px);
+        }
+
+        .route-info-panel {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(20px);
+            padding: 15px;
+            border-radius: 12px;
+            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            max-width: 250px;
+            display: none;
+        }
+
+        .efficiency-bar {
+            width: 100%;
+            height: 8px;
+            background: #e2e8f0;
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 8px 0;
+        }
+
+        .efficiency-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #f56565 0%, #ed8936 50%, #48bb78 100%);
+            transition: width 0.3s ease;
+        }
+
+        @media (max-width: 768px) {
+            .dashboard {
+                grid-template-columns: 1fr;
+                grid-template-rows: auto 1fr;
+            }
+            
+            .sidebar {
+                height: auto;
+                max-height: 40vh;
+                overflow-y: auto;
+            }
+            
+            .stats-grid {
+                grid-template-columns: repeat(4, 1fr);
+            }
+        }
+
+        .cluster-colors {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+            margin-top: 10px;
+        }
+
+        .color-dot {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            border: 2px solid white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            cursor: pointer;
+            transition: transform 0.2s ease;
+        }
+
+        .color-dot:hover {
+            transform: scale(1.2);
+        }
+
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="loading-overlay" id="loadingOverlay">
+        <div>
+            <div class="spinner"></div>
+            <p style="margin-top: 10px; color: #4a5568;">Loading assignment data...</p>
+        </div>
+    </div>
+
+    <div class="dashboard">
+        <div class="sidebar">
+            <div class="header">
+                <h1><i class="fas fa-route"></i> Route Dashboard</h1>
+                <p>Advanced Driver-User Assignment Analytics</p>
+            </div>
+
+            <div class="control-section">
+                <h3><i class="fas fa-search"></i> Filters</h3>
+                <div class="control-group">
+                    <label for="searchInput">Search Routes/Users</label>
+                    <input type="text" id="searchInput" class="form-control" placeholder="Enter ID, name, or keyword..." oninput="handleSearch()">
+                </div>
+                <div class="control-group">
+                    <label for="clusterSelect">Route Clusters</label>
+                    <select id="clusterSelect" class="form-control" onchange="filterCluster()">
+                        <option value="all">All Clusters</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label for="utilizationRange">Min Utilization: <span id="utilizationValue">0%</span></label>
+                    <input type="range" id="utilizationRange" class="form-control" min="0" max="100" value="0" oninput="filterByUtilization()">
+                </div>
+            </div>
+
+            <div class="control-section">
+                <h3><i class="fas fa-eye"></i> Display Options</h3>
+                <button class="btn btn-secondary" onclick="toggleUsers()">
+                    <i class="fas fa-users"></i> Toggle Users
+                </button>
+                <button class="btn btn-secondary" onclick="toggleDrivers()">
+                    <i class="fas fa-car"></i> Toggle Drivers
+                </button>
+                <button class="btn btn-secondary" onclick="toggleRoutes()">
+                    <i class="fas fa-route"></i> Toggle Routes
+                </button>
+                <button class="btn btn-secondary" onclick="toggleHeatmap()">
+                    <i class="fas fa-fire"></i> Toggle Heatmap
+                </button>
+            </div>
+
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-value" id="totalRoutes">0</div>
+                    <div class="stat-label">Routes</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="totalUsers">0</div>
+                    <div class="stat-label">Users</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="avgUtilization">0%</div>
+                    <div class="stat-label">Avg Util</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="totalDrivers">0</div>
+                    <div class="stat-label">Drivers</div>
+                </div>
+            </div>
+
+            <div class="analytics-section">
+                <h4><i class="fas fa-chart-bar"></i> Route Analytics</h4>
+                <div class="metric-item">
+                    <span class="metric-label">High Efficiency Routes</span>
+                    <span class="metric-value" id="highEfficiencyRoutes">0</span>
+                </div>
+                <div class="metric-item">
+                    <span class="metric-label">Underutilized Routes</span>
+                    <span class="metric-value" id="underutilizedRoutes">0</span>
+                </div>
+                <div class="metric-item">
+                    <span class="metric-label">Avg Distance/Route</span>
+                    <span class="metric-value" id="avgDistance">0 km</span>
+                </div>
+                <div class="metric-item">
+                    <span class="metric-label">Total Capacity</span>
+                    <span class="metric-value" id="totalCapacity">0</span>
+                </div>
+            </div>
+
+            <div class="control-section">
+                <h3><i class="fas fa-download"></i> Export Options</h3>
+                <button class="btn btn-primary" onclick="exportMapImage()">
+                    <i class="fas fa-image"></i> Export Map
+                </button>
+                <button class="btn btn-primary" onclick="exportAnalytics()">
+                    <i class="fas fa-file-csv"></i> Export Data
+                </button>
+                <button class="btn btn-primary" onclick="generateReport()">
+                    <i class="fas fa-file-pdf"></i> Generate Report
+                </button>
+            </div>
+        </div>
+
+        <div class="map-container">
+            <div id="map"></div>
+            
+            <div class="map-legend">
+                <div class="legend-title">Map Legend</div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #ff4444;"></div>
+                    <span>Office Location</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #4285f4;"></div>
+                    <span>Driver Position</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #34a853;"></div>
+                    <span>User Location</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #fbbc04;"></div>
+                    <span>Route Path</span>
+                </div>
+                <div class="cluster-colors" id="clusterColors"></div>
+            </div>
+
+            <div class="route-info-panel" id="routeInfoPanel">
+                <h4>Route Information</h4>
+                <div id="routeDetails"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = "http://localhost:8000/routes";
+        let map;
+        let userMarkers = [];
+        let driverMarkers = [];
+        let routeLines = [];
+        let heatmap;
+        let allRoutes = [];
+        let officeMarker;
+        let currentFilter = 'all';
+        let showUsers = true;
+        let showDrivers = true;
+        let showRoutes = true;
+        let showHeatmap = false;
+
+        const CLUSTER_COLORS = [
+            '#FF5733', '#33FF57', '#3357FF', '#FF33A1', '#FFC733', '#33FFF0',
+            '#FF8C33', '#8C33FF', '#33FF8C', '#FF3333', '#3333FF', '#FFFF33'
+        ];
+
+        function initMap() {
+            map = new google.maps.Map(document.getElementById("map"), {
+                center: { lat: 30.681, lng: 76.726 },
+                zoom: 12,
+                styles: [
+                    {
+                        featureType: "all",
+                        elementType: "geometry.fill",
+                        stylers: [{ color: "#f8fafc" }]
+                    },
+                    {
+                        featureType: "water",
+                        elementType: "geometry",
+                        stylers: [{ color: "#e2e8f0" }]
+                    }
+                ]
+            });
+
+            // Office marker
+            officeMarker = new google.maps.Marker({
+                position: { lat: 30.6810489, lng: 76.7260711 },
+                map,
+                title: "Office Headquarters",
+                icon: {
+                    url: "data:image/svg+xml;charset=UTF-8,%3csvg width='40' height='40' xmlns='http://www.w3.org/2000/svg'%3e%3ccircle cx='20' cy='20' r='18' fill='%23ff4444' stroke='white' stroke-width='4'/%3e%3ctext x='20' y='26' text-anchor='middle' fill='white' font-size='20'%3e🏢%3c/text%3e%3c/svg%3e"
+                },
+                zIndex: 1000
+            });
+
+            loadRouteData();
+        }
+
+        async function loadRouteData() {
+            try {
+                const response = await fetch(API_URL);
+                const routes = await response.json();
+                allRoutes = routes;
+                
+                hideLoading();
+                populateClusterDropdown(routes);
+                updateClusterColors(routes);
+                renderMap(routes);
+                updateAnalytics(routes);
+            } catch (error) {
+                console.error('Error loading route data:', error);
+                hideLoading();
+                alert('Failed to load route data. Please check if the server is running.');
+            }
+        }
+
+        function hideLoading() {
+            document.getElementById('loadingOverlay').style.display = 'none';
+        }
+
+        function populateClusterDropdown(routes) {
+            const select = document.getElementById("clusterSelect");
+            select.innerHTML = '<option value="all">All Clusters</option>';
+            
+            routes.forEach((route, index) => {
+                const option = document.createElement("option");
+                option.value = index;
+                option.text = `Route ${index + 1} (${route.assigned_users.length} users)`;
+                select.appendChild(option);
+            });
+        }
+
+        function updateClusterColors(routes) {
+            const container = document.getElementById('clusterColors');
+            container.innerHTML = '';
+            
+            routes.forEach((route, index) => {
+                const colorDot = document.createElement('div');
+                colorDot.className = 'color-dot';
+                colorDot.style.backgroundColor = CLUSTER_COLORS[index % CLUSTER_COLORS.length];
+                colorDot.title = `Route ${index + 1}`;
+                colorDot.onclick = () => filterCluster(index);
+                container.appendChild(colorDot);
+            });
+        }
+
+        function renderMap(routes) {
+            clearMap();
+            
+            let totalUsers = 0;
+            let heatmapData = [];
+
+            routes.forEach((route, index) => {
+                const color = CLUSTER_COLORS[index % CLUSTER_COLORS.length];
+                const dLat = parseFloat(route.latitude);
+                const dLng = parseFloat(route.longitude);
+
+                // Driver marker with custom styling
+                if (showDrivers) {
+                    const driverMarker = new google.maps.Marker({
+                        position: { lat: dLat, lng: dLng },
+                        map,
+                        title: `Driver ${route.driver_id} - Capacity: ${route.vehicle_type}`,
+                        icon: {
+                            url: `data:image/svg+xml;charset=UTF-8,%3csvg width='40' height='40' xmlns='http://www.w3.org/2000/svg'%3e%3ccircle cx='20' cy='20' r='18' fill='%23${color.slice(1)}' stroke='white' stroke-width='3'/%3e%3ctext x='20' y='26' text-anchor='middle' fill='white' font-size='18'%3e🚗%3c/text%3e%3c/svg%3e`,
+                            scaledSize: new google.maps.Size(40, 40)
+                        },
+                        zIndex: 500
+                    });
+
+                    const utilization = (route.assigned_users.length / route.vehicle_type * 100).toFixed(1);
+                    const driverInfo = `
+                        <div style="font-family: Inter, sans-serif; min-width: 200px;">
+                            <h3 style="margin: 0 0 10px 0; color: #2d3748;">Driver ${route.driver_id}</h3>
+                            <p><strong>Vehicle:</strong> ${route.vehicle_id}</p>
+                            <p><strong>Capacity:</strong> ${route.vehicle_type} passengers</p>
+                            <p><strong>Assigned:</strong> ${route.assigned_users.length} users</p>
+                            <p><strong>Utilization:</strong> ${utilization}%</p>
+                            <div class="efficiency-bar">
+                                <div class="efficiency-fill" style="width: ${utilization}%;"></div>
+                            </div>
+                        </div>
+                    `;
+                    
+                    const driverInfoWindow = new google.maps.InfoWindow({ content: driverInfo });
+                    driverMarker.addListener("click", () => {
+                        closeAllInfoWindows();
+                        driverInfoWindow.open(map, driverMarker);
+                        showRouteInfo(route, index);
+                    });
+                    
+                    driverMarkers.push({ marker: driverMarker, infoWindow: driverInfoWindow });
+                }
+
+                // User markers and routes
+                route.assigned_users.forEach((user, userIndex) => {
+                    const uLat = parseFloat(user.lat);
+                    const uLng = parseFloat(user.lng);
+                    totalUsers++;
+
+                    heatmapData.push(new google.maps.LatLng(uLat, uLng));
+
+                    if (showUsers) {
+                        const userMarker = new google.maps.Marker({
+                            position: { lat: uLat, lng: uLng },
+                            map,
+                            title: `User ${user.user_id}`,
+                            icon: {
+                                path: google.maps.SymbolPath.CIRCLE,
+                                scale: 8,
+                                fillColor: color,
+                                fillOpacity: 0.8,
+                                strokeColor: 'white',
+                                strokeWeight: 2,
+                            },
+                            zIndex: 300
+                        });
+
+                        const userInfo = `
+                            <div style="font-family: Inter, sans-serif;">
+                                <h4 style="margin: 0 0 8px 0; color: #2d3748;">User ${user.user_id}</h4>
+                                <p><strong>Name:</strong> ${user.first_name || 'N/A'}</p>
+                                <p><strong>Distance to Office:</strong> ${user.office_distance} km</p>
+                                <p><strong>Coordinates:</strong> ${uLat.toFixed(4)}, ${uLng.toFixed(4)}</p>
+                            </div>
+                        `;
+                        
+                        const userInfoWindow = new google.maps.InfoWindow({ content: userInfo });
+                        userMarker.addListener("click", () => {
+                            closeAllInfoWindows();
+                            userInfoWindow.open(map, userMarker);
+                        });
+                        
+                        userMarkers.push({ marker: userMarker, infoWindow: userInfoWindow });
+                    }
+
+                    // Route lines
+                    if (showRoutes) {
+                        const routePath = new google.maps.Polyline({
+                            path: [
+                                { lat: uLat, lng: uLng },
+                                { lat: dLat, lng: dLng }
+                            ],
+                            geodesic: true,
+                            strokeColor: color,
+                            strokeOpacity: 0.7,
+                            strokeWeight: 3,
+                            zIndex: 100
+                        });
+                        
+                        routePath.setMap(map);
+                        routeLines.push(routePath);
+                    }
+                });
+            });
+
+            // Heatmap
+            if (showHeatmap && heatmapData.length > 0) {
+                heatmap = new google.maps.visualization.HeatmapLayer({
+                    data: heatmapData,
+                    map: map,
+                    radius: 50,
+                    opacity: 0.6
+                });
+            }
+
+            updateStats(routes, totalUsers);
+        }
+
+        function updateStats(routes, totalUsers) {
+            const totalRoutes = routes.length;
+            const totalDrivers = routes.length;
+            const utilizations = routes.map(r => r.assigned_users.length / r.vehicle_type);
+            const avgUtilization = utilizations.length ? (utilizations.reduce((a, b) => a + b, 0) / utilizations.length * 100).toFixed(1) : 0;
+
+            document.getElementById('totalRoutes').textContent = totalRoutes;
+            document.getElementById('totalUsers').textContent = totalUsers;
+            document.getElementById('avgUtilization').textContent = avgUtilization + '%';
+            document.getElementById('totalDrivers').textContent = totalDrivers;
+        }
+
+        function updateAnalytics(routes) {
+            const highEfficiency = routes.filter(r => (r.assigned_users.length / r.vehicle_type) > 0.8).length;
+            const underutilized = routes.filter(r => (r.assigned_users.length / r.vehicle_type) < 0.5).length;
+            const totalCapacity = routes.reduce((sum, r) => sum + r.vehicle_type, 0);
+            
+            // Calculate average distance
+            let totalDistance = 0;
+            let totalConnections = 0;
+            routes.forEach(route => {
+                route.assigned_users.forEach(user => {
+                    const distance = haversineDistance(
+                        route.latitude, route.longitude,
+                        user.lat, user.lng
+                    );
+                    totalDistance += distance;
+                    totalConnections++;
+                });
+            });
+            const avgDistance = totalConnections ? (totalDistance / totalConnections).toFixed(1) : 0;
+
+            document.getElementById('highEfficiencyRoutes').textContent = highEfficiency;
+            document.getElementById('underutilizedRoutes').textContent = underutilized;
+            document.getElementById('avgDistance').textContent = avgDistance + ' km';
+            document.getElementById('totalCapacity').textContent = totalCapacity;
+        }
+
+        function haversineDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371;
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                Math.sin(dLon/2) * Math.sin(dLon/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            return R * c;
+        }
+
+        function closeAllInfoWindows() {
+            [...userMarkers, ...driverMarkers].forEach(item => {
+                if (item.infoWindow) item.infoWindow.close();
+            });
+        }
+
+        function showRouteInfo(route, index) {
+            const panel = document.getElementById('routeInfoPanel');
+            const utilization = (route.assigned_users.length / route.vehicle_type * 100).toFixed(1);
+            
+            const details = `
+                <div style="font-size: 0.85rem;">
+                    <p><strong>Route ${index + 1}</strong></p>
+                    <p>Driver: ${route.driver_id}</p>
+                    <p>Users: ${route.assigned_users.length}/${route.vehicle_type}</p>
+                    <p>Utilization: ${utilization}%</p>
+                    <div class="efficiency-bar">
+                        <div class="efficiency-fill" style="width: ${utilization}%;"></div>
+                    </div>
+                </div>
+            `;
+            
+            document.getElementById('routeDetails').innerHTML = details;
+            panel.style.display = 'block';
+            
+            setTimeout(() => panel.style.display = 'none', 5000);
+        }
+
+        function clearMap() {
+            userMarkers.forEach(item => item.marker.setMap(null));
+            driverMarkers.forEach(item => item.marker.setMap(null));
+            routeLines.forEach(line => line.setMap(null));
+            if (heatmap) heatmap.setMap(null);
+            
+            userMarkers = [];
+            driverMarkers = [];
+            routeLines = [];
+            heatmap = null;
+        }
+
+        function handleSearch() {
+            const query = document.getElementById("searchInput").value.toLowerCase();
+            const filtered = allRoutes.filter(route =>
+                route.driver_id.toLowerCase().includes(query) ||
+                route.vehicle_id.toLowerCase().includes(query) ||
+                route.assigned_users.some(user => 
+                    user.user_id.toLowerCase().includes(query) ||
+                    (user.first_name && user.first_name.toLowerCase().includes(query))
+                )
+            );
+            renderMap(filtered);
+        }
+
+        function filterCluster(clusterId = null) {
+            const selectedValue = clusterId !== null ? clusterId : document.getElementById("clusterSelect").value;
+            if (selectedValue === "all") {
+                renderMap(allRoutes);
+            } else {
+                renderMap([allRoutes[parseInt(selectedValue)]]);
+            }
+        }
+
+        function filterByUtilization() {
+            const minUtilization = parseInt(document.getElementById("utilizationRange").value) / 100;
+            document.getElementById("utilizationValue").textContent = `${Math.round(minUtilization * 100)}%`;
+            
+            const filtered = allRoutes.filter(route => {
+                const utilization = route.assigned_users.length / route.vehicle_type;
+                return utilization >= minUtilization;
+            });
+            renderMap(filtered);
+        }
+
+        function toggleUsers() {
+            showUsers = !showUsers;
+            renderMap(allRoutes);
+        }
+
+        function toggleDrivers() {
+            showDrivers = !showDrivers;
+            renderMap(allRoutes);
+        }
+
+        function toggleRoutes() {
+            showRoutes = !showRoutes;
+            renderMap(allRoutes);
+        }
+
+        function toggleHeatmap() {
+            showHeatmap = !showHeatmap;
+            renderMap(allRoutes);
+        }
+
+        function exportMapImage() {
+            html2canvas(document.getElementById("map"), {
+                useCORS: true,
+                scale: 2
+            }).then(canvas => {
+                const link = document.createElement("a");
+                link.download = `route-map-${new Date().toISOString().split('T')[0]}.png`;
+                link.href = canvas.toDataURL("image/png");
+                link.click();
+            });
+        }
+
+        function exportAnalytics() {
+            const csvData = allRoutes.map((route, index) => ({
+                route_id: index + 1,
+                driver_id: route.driver_id,
+                vehicle_id: route.vehicle_id,
+                capacity: route.vehicle_type,
+                assigned_users: route.assigned_users.length,
+                utilization: (route.assigned_users.length / route.vehicle_type * 100).toFixed(2),
+                driver_lat: route.latitude,
+                driver_lng: route.longitude
+            }));
+
+            const csv = [
+                Object.keys(csvData[0]).join(','),
+                ...csvData.map(row => Object.values(row).join(','))
+            ].join('\n');
+
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `route-analytics-${new Date().toISOString().split('T')[0]}.csv`;
+            link.click();
+            window.URL.revokeObjectURL(url);
+        }
+
+        function generateReport() {
+            const report = {
+                generated_at: new Date().toISOString(),
+                summary: {
+                    total_routes: allRoutes.length,
+                    total_users: allRoutes.reduce((sum, r) => sum + r.assigned_users.length, 0),
+                    average_utilization: (allRoutes.reduce((sum, r) => sum + (r.assigned_users.length / r.vehicle_type), 0) / allRoutes.length * 100).toFixed(2),
+                    high_efficiency_routes: allRoutes.filter(r => (r.assigned_users.length / r.vehicle_type) > 0.8).length,
+                    underutilized_routes: allRoutes.filter(r => (r.assigned_users.length / r.vehicle_type) < 0.5).length
+                },
+                routes: allRoutes
+            };
+
+            const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `route-report-${new Date().toISOString().split('T')[0]}.json`;
+            link.click();
+            window.URL.revokeObjectURL(url);
+        }
+    </script>
+
+    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAjESclgKTCpmdmHKc7bzCKIQtYe_vIbb4&libraries=visualization&callback=initMap" async defer></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+</body>
+</html>
