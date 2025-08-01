@@ -1,0 +1,13 @@
+# for api purpose
+fastapi
+requests
+
+# for data preprocessing
+numpy
+pandas
+
+# for machine-learning
+scikit-learn
+
+# for loading api in code
+python-dotenv

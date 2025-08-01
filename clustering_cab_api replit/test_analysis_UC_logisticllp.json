@@ -1,0 +1,497 @@
+{
+  "metadata": {
+    "source_id": "UC_logisticllp",
+    "timestamp": "2025-07-30T15:17:04.603450",
+    "analysis_version": "1.0"
+  },
+  "raw_data_analysis": {
+    "total_users": 29,
+    "total_drivers": 12,
+    "users_with_valid_coordinates": 29,
+    "users_missing_coordinates": 0,
+    "data_fetch_time_seconds": 1.637,
+    "users_analysis": {
+      "total_count": 29,
+      "fields_available": [
+        "id",
+        "first_name",
+        "last_name",
+        "email",
+        "shift_type",
+        "office_distance",
+        "sub_user_id",
+        "latitude",
+        "longitude",
+        "staff_language",
+        "schedule_date"
+      ],
+      "data_types": {
+        "id": "int64",
+        "first_name": "object",
+        "last_name": "object",
+        "email": "object",
+        "shift_type": "object",
+        "office_distance": "object",
+        "sub_user_id": "int64",
+        "latitude": "object",
+        "longitude": "object",
+        "staff_language": "object",
+        "schedule_date": "object"
+      },
+      "missing_data": {
+        "id": 0,
+        "first_name": 0,
+        "last_name": 23,
+        "email": 4,
+        "shift_type": 0,
+        "office_distance": 0,
+        "sub_user_id": 0,
+        "latitude": 0,
+        "longitude": 0,
+        "staff_language": 29,
+        "schedule_date": 29
+      },
+      "statistics": {
+        "geographical": {
+          "lat_range": [
+            30.6364521,
+            30.7602241
+          ],
+          "lng_range": [
+            76.6312165,
+            76.8274071
+          ],
+          "center_point": [
+            30.722701024137933,
+            76.69952548275863
+          ]
+        },
+        "office_distance": {
+          "min": 2.98,
+          "max": 19.788,
+          "mean": 7.788034482758621,
+          "median": 6.709
+        },
+        "shift_distribution": {
+          "1": 29
+        }
+      }
+    },
+    "drivers_analysis": {
+      "total_count": 12,
+      "fields_available": [
+        "id",
+        "first_name",
+        "last_name",
+        "email",
+        "profile_image",
+        "sub_user_id",
+        "latitude",
+        "longitude",
+        "vehicle_id",
+        "vehicle_name",
+        "vehicle_no",
+        "capacity",
+        "chasis_no",
+        "color",
+        "registration_no",
+        "shift_type_id"
+      ],
+      "data_types": {
+        "id": "int64",
+        "first_name": "object",
+        "last_name": "object",
+        "email": "object",
+        "profile_image": "object",
+        "sub_user_id": "int64",
+        "latitude": "object",
+        "longitude": "object",
+        "vehicle_id": "int64",
+        "vehicle_name": "object",
+        "vehicle_no": "object",
+        "capacity": "int64",
+        "chasis_no": "object",
+        "color": "object",
+        "registration_no": "object",
+        "shift_type_id": "int64"
+      },
+      "missing_data": {
+        "id": 0,
+        "first_name": 0,
+        "last_name": 12,
+        "email": 0,
+        "profile_image": 12,
+        "sub_user_id": 0,
+        "latitude": 0,
+        "longitude": 0,
+        "vehicle_id": 0,
+        "vehicle_name": 0,
+        "vehicle_no": 0,
+        "capacity": 0,
+        "chasis_no": 0,
+        "color": 0,
+        "registration_no": 0,
+        "shift_type_id": 0
+      },
+      "statistics": {
+        "capacity": {
+          "total_capacity": 74,
+          "min_capacity": 5,
+          "max_capacity": 7,
+          "avg_capacity": 6.166666666666667,
+          "capacity_distribution": {
+            "7": 7,
+            "5": 5
+          }
+        },
+        "geographical": {
+          "lat_range": [
+            30.6425496,
+            30.7498676
+          ],
+          "lng_range": [
+            76.6411094,
+            76.860565
+          ],
+          "center_point": [
+            30.70951475833333,
+            76.73857530833334
+          ]
+        }
+      }
+    },
+    "capacity_vs_demand": {
+      "total_demand": 29,
+      "total_capacity": 74,
+      "capacity_utilization_potential": 39.19,
+      "surplus_capacity": 45,
+      "demand_shortage": 0,
+      "capacity_adequacy": "adequate"
+    }
+  },
+  "api_response": {
+    "response_structure": {
+      "has_status": false,
+      "has_users": true,
+      "has_drivers": true,
+      "additional_fields": [
+        "shift"
+      ]
+    },
+    "data_quality": {
+      "issues_found": 0,
+      "issues_list": [],
+      "data_completeness_score": 100
+    }
+  },
+  "assignment_results": {
+    "execution_time_seconds": 2.989,
+    "status": "true",
+    "basic_stats": {
+      "total_routes": 6,
+      "total_assigned_users": 29,
+      "total_unassigned_users": 0,
+      "assignment_rate": 100.0,
+      "avg_utilization": 81.4,
+      "min_utilization": 57.1,
+      "max_utilization": 100.0,
+      "routes_below_80_percent": 3,
+      "distance_issues": [
+        {
+          "driver_id": "2536",
+          "user_id": "2391",
+          "distance_km": 8.85
+        },
+        {
+          "driver_id": "2536",
+          "user_id": "2416",
+          "distance_km": 8.39
+        },
+        {
+          "driver_id": "2574",
+          "user_id": "2474",
+          "distance_km": 11.31
+        }
+      ]
+    }
+  },
+  "performance_metrics": {
+    "assignment_efficiency": {
+      "total_users": 29,
+      "assigned_users": 29,
+      "unassigned_users": 0,
+      "assignment_rate_percent": 100.0
+    },
+    "utilization_metrics": {
+      "average_utilization_percent": 81.43,
+      "min_utilization_percent": 57.14,
+      "max_utilization_percent": 100.0,
+      "utilization_distribution": {
+        "below_50_percent": 0,
+        "50_to_80_percent": 3,
+        "80_to_100_percent": 3,
+        "full_capacity": 3
+      }
+    },
+    "distance_metrics": {
+      "average_distance_km": 3.0,
+      "max_distance_km": 11.31,
+      "distances_over_5km": 5,
+      "distances_over_10km": 1
+    },
+    "resource_utilization": {
+      "total_routes_created": 6,
+      "drivers_utilized": 6,
+      "drivers_unused": 6,
+      "driver_utilization_rate_percent": 50.0
+    }
+  },
+  "geographical_analysis": {
+    "route_distribution": {
+      "number_of_routes": 6,
+      "geographical_spread": {
+        "lat_range": [
+          30.6825181,
+          30.746016900000004
+        ],
+        "lng_range": [
+          76.65049916,
+          76.785774
+        ],
+        "center_of_operations": [
+          30.717972195,
+          76.70414027825397
+        ]
+      }
+    },
+    "clustering_effectiveness": {
+      "average_intra_cluster_distance_km": 2.55,
+      "tightest_cluster_km": 0.99,
+      "loosest_cluster_km": 6.28,
+      "well_clustered_routes": 5
+    }
+  },
+  "optimization_insights": {
+    "efficiency_opportunities": [
+      {
+        "type": "underutilized_vehicles",
+        "count": 3,
+        "potential_capacity_savings": 7
+      }
+    ],
+    "resource_optimization": [
+      {
+        "type": "excess_capacity",
+        "excess_seats": 45,
+        "recommendation": "Consider reducing fleet size or expanding service area"
+      }
+    ],
+    "geographical_optimization": []
+  },
+  "recommendations": [],
+  "user_tracking_debug": {
+    "user_statuses": {
+      "2307": {
+        "status": "assigned"
+      },
+      "2312": {
+        "status": "assigned"
+      },
+      "2334": {
+        "status": "assigned"
+      },
+      "2338": {
+        "status": "assigned"
+      },
+      "2348": {
+        "status": "assigned"
+      },
+      "2376": {
+        "status": "assigned"
+      },
+      "2379": {
+        "status": "assigned"
+      },
+      "2381": {
+        "status": "assigned"
+      },
+      "2383": {
+        "status": "assigned"
+      },
+      "2391": {
+        "status": "assigned"
+      },
+      "2394": {
+        "status": "assigned"
+      },
+      "2397": {
+        "status": "assigned"
+      },
+      "2398": {
+        "status": "assigned"
+      },
+      "2399": {
+        "status": "assigned"
+      },
+      "2416": {
+        "status": "assigned"
+      },
+      "2425": {
+        "status": "assigned"
+      },
+      "2457": {
+        "status": "assigned"
+      },
+      "2467": {
+        "status": "assigned"
+      },
+      "2473": {
+        "status": "assigned"
+      },
+      "2474": {
+        "status": "assigned"
+      },
+      "2475": {
+        "status": "assigned"
+      },
+      "2483": {
+        "status": "assigned"
+      },
+      "2484": {
+        "status": "assigned"
+      },
+      "2588": {
+        "status": "assigned"
+      },
+      "2589": {
+        "status": "assigned"
+      },
+      "2592": {
+        "status": "assigned"
+      },
+      "2604": {
+        "status": "assigned"
+      },
+      "2605": {
+        "status": "assigned"
+      },
+      "2607": {
+        "status": "assigned"
+      }
+    },
+    "status_summary": {
+      "assigned": 29
+    }
+  },
+  "lost_users_analysis": {
+    "original_users": 29,
+    "processed_users": 29,
+    "lost_users_count": 0,
+    "lost_user_ids": [],
+    "lost_users_details": []
+  },
+  "route_breakdown": [
+    {
+      "route_id": 0,
+      "driver_id": "2573",
+      "vehicle_capacity": 7,
+      "assigned_users_count": 4,
+      "utilization_percent": 57.14,
+      "distance_metrics": {
+        "avg_distance_to_users_km": 2.07,
+        "max_distance_to_user_km": 2.36,
+        "min_distance_to_user_km": 1.81
+      },
+      "geographical_center": [
+        30.70783375,
+        76.7160375
+      ],
+      "efficiency_rating": 6.3
+    },
+    {
+      "route_id": 1,
+      "driver_id": "2533",
+      "vehicle_capacity": 7,
+      "assigned_users_count": 7,
+      "utilization_percent": 100.0,
+      "distance_metrics": {
+        "avg_distance_to_users_km": 2.35,
+        "max_distance_to_user_km": 3.6,
+        "min_distance_to_user_km": 0.71
+      },
+      "geographical_center": [
+        30.746016900000004,
+        76.65856824285716
+      ],
+      "efficiency_rating": 8.0
+    },
+    {
+      "route_id": 2,
+      "driver_id": "2572",
+      "vehicle_capacity": 5,
+      "assigned_users_count": 5,
+      "utilization_percent": 100.0,
+      "distance_metrics": {
+        "avg_distance_to_users_km": 1.14,
+        "max_distance_to_user_km": 2.37,
+        "min_distance_to_user_km": 0.45
+      },
+      "geographical_center": [
+        30.731974100000002,
+        76.69442860000001
+      ],
+      "efficiency_rating": 10
+    },
+    {
+      "route_id": 3,
+      "driver_id": "2536",
+      "vehicle_capacity": 5,
+      "assigned_users_count": 3,
+      "utilization_percent": 60.0,
+      "distance_metrics": {
+        "avg_distance_to_users_km": 8.07,
+        "max_distance_to_user_km": 8.85,
+        "min_distance_to_user_km": 6.98
+      },
+      "geographical_center": [
+        30.6825181,
+        76.71953416666666
+      ],
+      "efficiency_rating": 2.4
+    },
+    {
+      "route_id": 4,
+      "driver_id": "2574",
+      "vehicle_capacity": 7,
+      "assigned_users_count": 5,
+      "utilization_percent": 71.43,
+      "distance_metrics": {
+        "avg_distance_to_users_km": 5.11,
+        "max_distance_to_user_km": 11.31,
+        "min_distance_to_user_km": 1.84
+      },
+      "geographical_center": [
+        30.697136219999997,
+        76.785774
+      ],
+      "efficiency_rating": 4.9
+    },
+    {
+      "route_id": 5,
+      "driver_id": "2539",
+      "vehicle_capacity": 5,
+      "assigned_users_count": 5,
+      "utilization_percent": 100.0,
+      "distance_metrics": {
+        "avg_distance_to_users_km": 1.35,
+        "max_distance_to_user_km": 2.96,
+        "min_distance_to_user_km": 0.0
+      },
+      "geographical_center": [
+        30.7423541,
+        76.65049916
+      ],
+      "efficiency_rating": 10
+    }
+  ]
+}
