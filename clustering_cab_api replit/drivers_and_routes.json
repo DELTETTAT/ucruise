@@ -1,0 +1,84 @@
+[
+  {
+    "driver_id": "225427",
+    "vehicle_id": "15467",
+    "vehicle_type": 2,
+    "latitude": 30.6727404,
+    "longitude": 76.7206652,
+    "assigned_users": [
+      {
+        "user_id": "225423",
+        "lat": 30.7217456,
+        "lng": 76.8333971,
+        "office_distance": 13.983,
+        "first_name": "Komal",
+        "email": "Komal@yopmail.com"
+      },
+      {
+        "user_id": "225424",
+        "lat": 30.6944908,
+        "lng": 76.6650946,
+        "office_distance": 8.275,
+        "first_name": "Shweta",
+        "email": "Mishra@yopmail.com"
+      }
+    ],
+    "centroid": [
+      30.7081182,
+      76.74924585
+    ],
+    "utilization": 1.0,
+    "stops": [
+      [
+        30.7217456,
+        76.8333971
+      ],
+      [
+        30.6944908,
+        76.6650946
+      ]
+    ],
+    "bearing": 217.26583379153868
+  },
+  {
+    "driver_id": "225435",
+    "vehicle_id": "15475",
+    "vehicle_type": 4,
+    "latitude": 30.7252649,
+    "longitude": 76.6509078,
+    "assigned_users": [
+      {
+        "user_id": "225422",
+        "lat": 30.7263392,
+        "lng": 76.6522883,
+        "office_distance": 12.122,
+        "first_name": "Chetan",
+        "email": "Chetan@yopmail.com"
+      },
+      {
+        "user_id": "225425",
+        "lat": 30.7564459,
+        "lng": 76.6554135,
+        "office_distance": 12.046,
+        "first_name": "Ritika",
+        "email": "Ritika@yopmail.com"
+      }
+    ],
+    "centroid": [
+      30.74139255,
+      76.6538509
+    ],
+    "utilization": 0.5,
+    "stops": [
+      [
+        30.7263392,
+        76.6522883
+      ],
+      [
+        30.7564459,
+        76.6554135
+      ]
+    ],
+    "bearing": 133.97055718042583
+  }
+]
