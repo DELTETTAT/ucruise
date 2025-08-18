@@ -12,7 +12,7 @@ from sklearn.metrics import silhouette_score
 from scipy.spatial.distance import cdist
 from dotenv import load_dotenv
 import warnings
-import multiprocessing as mp  
+import multiprocessing as mp
 from concurrent.futures import ThreadPoolExecutor
 import logging
 
@@ -441,7 +441,7 @@ def calculate_bearings_and_features(user_df, office_lat, office_lon):
     return user_df
 
 
-# ENHANCED BUT SIMPLIFIED CLUSTERING
+# SIMPLIFIED CLUSTERING
 def enhanced_geographical_clustering(user_df, office_lat, office_lon):
     """
     Enhanced clustering that handles single user edge case with improved vector clustering
@@ -457,10 +457,11 @@ def enhanced_geographical_clustering(user_df, office_lat, office_lon):
             'clusters': 1
         }
 
-    # Enhanced vector-based clustering with bearing and distance features
-    # Create comprehensive feature vector: [lat, lng, bearing_weight, distance_weight]
-    bearing_weight = 0.4  # Increased from 0.3 for better directional clustering
-    distance_weight = 0.2
+    # Enhanced vector-based clustering with STRONG bearing emphasis
+    # Create comprehensive feature vector prioritizing directional coherence
+    bearing_weight = 1.0  # MUCH higher weight for bearing - direction is critical
+    distance_weight = 0.3  # Reduced distance weight
+    coord_weight = 0.5    # Reduced coordinate weight
 
     # Calculate distance from office (normalized)
     distances_from_office = np.array([
@@ -470,13 +471,13 @@ def enhanced_geographical_clustering(user_df, office_lat, office_lon):
     max_distance = max(distances_from_office) if len(distances_from_office) > 0 else 1
     normalized_distances = distances_from_office / max_distance
 
-    # Create enhanced feature matrix
+    # Create enhanced feature matrix with STRONG bearing emphasis
     enhanced_features = np.column_stack([
-        coords[:, 0],  # latitude
-        coords[:, 1],  # longitude
-        user_df['bearing_sin'].values * bearing_weight,  # bearing component
-        user_df['bearing_cos'].values * bearing_weight,  # bearing component
-        normalized_distances * distance_weight  # distance from office
+        coords[:, 0] * coord_weight,  # latitude (reduced weight)
+        coords[:, 1] * coord_weight,  # longitude (reduced weight)
+        user_df['bearing_sin'].values * bearing_weight,  # bearing component (HIGH weight)
+        user_df['bearing_cos'].values * bearing_weight,  # bearing component (HIGH weight)
+        normalized_distances * distance_weight  # distance from office (reduced weight)
     ])
 
     # Try vector-enhanced DBSCAN first
@@ -616,36 +617,7 @@ def calculate_enhanced_cost(route, driver_pos, user_positions, office_lat,
     # Vector-based directional efficiency (CRITICAL factor)
     bearing_penalty = 0
     if len(user_positions) > 1:
-        # Convert bearings to unit vectors for better clustering analysis
-        user_vectors = []
-        for pos in user_positions:
-            bearing_rad = np.radians(calculate_bearing(office_lat, office_lon, pos[0], pos[1]))
-            # Convert to unit vector (x, y components)
-            vector = np.array([np.cos(bearing_rad), np.sin(bearing_rad)])
-            user_vectors.append(vector)
-
-        # Calculate vector coherence (how aligned are the directions)
-        if len(user_vectors) > 1:
-            # Mean vector magnitude indicates directional coherence
-            mean_vector = np.mean(user_vectors, axis=0)
-            vector_magnitude = np.linalg.norm(mean_vector)
-
-            # Penalty inversely proportional to coherence (0 = scattered, 1 = aligned)
-            coherence_penalty = (1 - vector_magnitude) * 25.0  # Higher penalty for scattered directions
-            bearing_penalty += coherence_penalty
-
-            # Additional penalty for maximum angular spread
-            angles = [np.arctan2(v[1], v[0]) for v in user_vectors]
-            max_angular_spread = max(angles) - min(angles)
-            if max_angular_spread > np.pi:  # Handle wrap-around
-                max_angular_spread = 2 * np.pi - max_angular_spread
-
-            # Convert to degrees and apply penalty
-            spread_degrees = np.degrees(max_angular_spread)
-            if spread_degrees > 90:
-                bearing_penalty += (spread_degrees - 90) * 0.5
-
-        # Calculate bearing spread - heavy penalty for users in opposite directions
+        # Calculate bearing spread - EXTREME penalty for users in opposite directions
         user_bearings = [calculate_bearing(office_lat, office_lon, pos[0], pos[1]) for pos in user_positions]
         bearing_differences = []
         for i in range(len(user_bearings)):
@@ -655,40 +627,55 @@ def calculate_enhanced_cost(route, driver_pos, user_positions, office_lat,
 
         if bearing_differences:
             max_bearing_diff = max(bearing_differences)
-            # EXTREME penalty for users in opposite directions (>90 degrees apart)
-            if max_bearing_diff > 90:
-                bearing_penalty = 50.0 + (max_bearing_diff - 90) * 2.0  # Very high base penalty + 2km per degree
-            # Heavy penalty for widely spread users (>60 degrees apart)
-            elif max_bearing_diff > 60:
-                bearing_penalty = (max_bearing_diff - 60) * 0.5  # 0.5 km penalty per degree over 60
-            # Moderate penalty for moderately spread users (>30 degrees apart)
-            elif max_bearing_diff > 30:
-                bearing_penalty = (max_bearing_diff - 30) * 0.2  # 0.2 km penalty per degree over 30
+            # EXTREME penalty for users in opposite directions (>30 degrees apart) - VERY STRICT
+            if max_bearing_diff > 30:
+                bearing_penalty = 150.0 + (max_bearing_diff - 30) * 8.0  # Massive penalty + 8km per degree
+            # Heavy penalty for moderately spread users (>20 degrees apart)
+            elif max_bearing_diff > 20:
+                bearing_penalty = 40.0 + (max_bearing_diff - 20) * 4.0  # 40km base + 4km per degree
+            # Light penalty for slightly spread users (>10 degrees apart)
+            elif max_bearing_diff > 10:
+                bearing_penalty = (max_bearing_diff - 10) * 2.0  # 2km per degree over 10
 
-        # Compactness penalty - users should be geographically close
-        distances = [
-            haversine_distance(pos[0], pos[1], centroid[0], centroid[1])
-            for pos in user_positions
-        ]
-        compactness_penalty = np.std(distances) * 0.3
+        # Convert bearings to unit vectors for coherence analysis
+        user_vectors = []
+        for pos in user_positions:
+            bearing_rad = np.radians(calculate_bearing(office_lat, office_lon, pos[0], pos[1]))
+            vector = np.array([np.cos(bearing_rad), np.sin(bearing_rad)])
+            user_vectors.append(vector)
 
-        # Route efficiency penalty - total travel distance within route
-        total_route_distance = 0
-        for i in range(len(user_positions)):
-            for j in range(i + 1, len(user_positions)):
-                total_route_distance += haversine_distance(
-                    user_positions[i][0], user_positions[i][1],
-                    user_positions[j][0], user_positions[j][1]
-                )
+        # Calculate vector coherence (how aligned are the directions)
+        if len(user_vectors) > 1:
+            mean_vector = np.mean(user_vectors, axis=0)
+            vector_magnitude = np.linalg.norm(mean_vector)
 
-        # Average inter-user distance penalty
-        if len(user_positions) > 1:
-            avg_inter_distance = total_route_distance / (len(user_positions) * (len(user_positions) - 1) / 2)
-            distance_spread_penalty = avg_inter_distance * 0.2  # Penalty for spread out users
-        else:
-            distance_spread_penalty = 0
+            # Additional coherence penalty - stricter threshold
+            if vector_magnitude < 0.8:  # If not well-aligned (was 0.0)
+                coherence_penalty = (0.8 - vector_magnitude) * 50.0  # Much higher penalty
+                bearing_penalty += coherence_penalty
+
+
+    # Compactness penalty - users should be geographically close
+    distances = [
+        haversine_distance(pos[0], pos[1], centroid[0], centroid[1])
+        for pos in user_positions
+    ]
+    compactness_penalty = np.std(distances) * 0.3
+
+    # Route efficiency penalty - total travel distance within route
+    total_route_distance = 0
+    for i in range(len(user_positions)):
+        for j in range(i + 1, len(user_positions)):
+            total_route_distance += haversine_distance(
+                user_positions[i][0], user_positions[i][1],
+                user_positions[j][0], user_positions[j][1]
+            )
+
+    # Average inter-user distance penalty
+    if len(user_positions) > 1:
+        avg_inter_distance = total_route_distance / (len(user_positions) * (len(user_positions) - 1) / 2)
+        distance_spread_penalty = avg_inter_distance * 0.2  # Penalty for spread out users
     else:
-        compactness_penalty = 0
         distance_spread_penalty = 0
 
     total_cost = (distance_cost + utilization_penalty + bearing_penalty +
@@ -780,12 +767,27 @@ def optimize_driver_assignment(user_df, driver_df):
                 driver = available_drivers.loc[driver_idx]
                 driver_pos = (driver['latitude'], driver['longitude'])
 
+                # FIRST: Check if users in this cluster are directionally coherent
+                user_positions = [(row['latitude'], row['longitude']) for _, row in sub_users.iterrows()]
+
+                if len(user_positions) > 1:
+                    # Check bearing spread among users - reject if too scattered
+                    user_bearings = [calculate_bearing(user_df.iloc[0]['office_latitude'],
+                                                     user_df.iloc[0]['office_longitude'],
+                                                     pos[0], pos[1]) for pos in user_positions]
+                    max_user_bearing_diff = 0
+                    for i in range(len(user_bearings)):
+                        for j in range(i + 1, len(user_bearings)):
+                            diff = bearing_difference(user_bearings[i], user_bearings[j])
+                            max_user_bearing_diff = max(max_user_bearing_diff, diff)
+
+                    # Skip this cluster if users are too scattered directionally
+                    if max_user_bearing_diff > 25:  # Very strict threshold
+                        continue
+
                 # Calculate basic distance cost
                 distance = haversine_distance(driver_pos[0], driver_pos[1],
                                               sub_centroid[0], sub_centroid[1])
-
-                # Calculate bearing alignment between driver and users relative to office
-                user_positions = [(row['latitude'], row['longitude']) for _, row in sub_users.iterrows()]
 
                 # Enhanced cost calculation with bearing considerations
                 mock_route = {'capacity': driver['capacity']}
@@ -1014,6 +1016,29 @@ def fill_underutilized_routes(drivers_and_routes, user_df, assigned_user_ids):
                 dist = haversine_distance(centroid_lat, centroid_lng,
                                           user['latitude'], user['longitude'])
                 if dist <= MAX_FILL_DISTANCE_KM:
+                    # STRICT bearing compatibility check before considering user
+                    if route['assigned_users']:
+                        # Calculate bearing from office to new user
+                        new_user_bearing = calculate_bearing(user_df.iloc[0]['office_latitude'],
+                                                           user_df.iloc[0]['office_longitude'],
+                                                           user['latitude'], user['longitude'])
+
+                        # Check bearing compatibility with existing users
+                        bearing_compatible = True
+                        for existing_user in route['assigned_users']:
+                            existing_bearing = calculate_bearing(user_df.iloc[0]['office_latitude'],
+                                                               user_df.iloc[0]['office_longitude'],
+                                                               existing_user['lat'], existing_user['lng'])
+                            bearing_diff = bearing_difference(new_user_bearing, existing_bearing)
+
+                            # VERY STRICT: Reject if bearing difference > 25 degrees
+                            if bearing_diff > 25:
+                                bearing_compatible = False
+                                break
+
+                        if not bearing_compatible:
+                            continue  # Skip this user - not bearing compatible
+
                     # Calculate enhanced cost including bearing compatibility
                     user_positions = [(u['lat'], u['lng']) for u in route['assigned_users']]
                     user_positions.append((user['latitude'], user['longitude']))
@@ -1022,6 +1047,31 @@ def fill_underutilized_routes(drivers_and_routes, user_df, assigned_user_ids):
                     cost = calculate_enhanced_cost(mock_route, (route['latitude'], route['longitude']),
                                                    user_positions, user_df.iloc[0]['office_latitude'],
                                                    user_df.iloc[0]['office_longitude'])
+
+                    # CRITICAL: Route quality check - reject if adding this user makes route too scattered
+                    if len(route['assigned_users']) >= 2:  # Only check for routes with 2+ existing users
+                        # Calculate route compactness BEFORE adding user
+                        existing_positions = [(u['lat'], u['lng']) for u in route['assigned_users']]
+                        existing_centroid = (np.mean([p[0] for p in existing_positions]), 
+                                           np.mean([p[1] for p in existing_positions]))
+                        
+                        # Calculate average distance from existing centroid to existing users
+                        existing_avg_distance = np.mean([
+                            haversine_distance(existing_centroid[0], existing_centroid[1], pos[0], pos[1])
+                            for pos in existing_positions
+                        ])
+                        
+                        # Calculate distance from new user to existing centroid
+                        user_to_centroid_distance = haversine_distance(
+                            existing_centroid[0], existing_centroid[1], 
+                            user['latitude'], user['longitude']
+                        )
+                        
+                        # Reject if new user is too far from existing route's center
+                        # This prevents adding distant users to compact routes
+                        distance_ratio = user_to_centroid_distance / max(existing_avg_distance, 0.5)
+                        if distance_ratio > 2.5:  # New user is >2.5x further than average existing distance
+                            continue  # Skip this user - would make route too scattered
 
                     # Deterministic tie-breaking using user_id
                     tie_breaker = int(str(user['user_id'])[-4:]) / 10000.0  # Use last 4 digits of user_id
@@ -1188,7 +1238,7 @@ def merge_underutilized_routes(drivers_and_routes):
 
 
 def check_merge_bearing_compatibility(users_a, users_b):
-    """Check if two user groups are bearing-compatible for merging"""
+    """Check if two user groups are bearing-compatible for merging - STRICT VERSION"""
     if not users_a or not users_b:
         return True
 
@@ -1202,14 +1252,15 @@ def check_merge_bearing_compatibility(users_a, users_b):
         bearing = calculate_bearing(OFFICE_LAT, OFFICE_LON, user['lat'], user['lng'])
         bearings.append(bearing)
 
-    # Check maximum bearing difference
+    # Check maximum bearing difference - MUCH STRICTER
     max_bearing_diff = 0
     for i in range(len(bearings)):
         for j in range(i + 1, len(bearings)):
             diff = bearing_difference(bearings[i], bearings[j])
             max_bearing_diff = max(max_bearing_diff, diff)
 
-    return max_bearing_diff <= MAX_BEARING_DIFFERENCE * 1.5
+    # VERY STRICT: Only allow merging if all users are within 20 degrees of each other
+    return max_bearing_diff <= 20
 
 
 def update_route_metrics_single(route):
