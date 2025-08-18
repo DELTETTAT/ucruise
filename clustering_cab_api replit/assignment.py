@@ -12,7 +12,7 @@ from sklearn.metrics import silhouette_score
 from scipy.spatial.distance import cdist
 from dotenv import load_dotenv
 import warnings
-import multiprocessing as mp
+import multiprocessing as mp  
 from concurrent.futures import ThreadPoolExecutor
 import logging
 
@@ -36,40 +36,29 @@ def load_and_validate_config():
     config = {}
 
     # Distance configurations (must be positive floats)
-    config['MAX_FILL_DISTANCE_KM'] = max(0.1, float(cfg.get("max_fill_distance_km", 3.0)))  # Reduced for better clustering
-    config['MERGE_DISTANCE_KM'] = max(0.1, float(cfg.get("merge_distance_km", 2.0)))  # Reduced for tighter clusters
-    config['DBSCAN_EPS_KM'] = max(0.1, float(cfg.get("dbscan_eps_km", 2.0)))  # Reduced for tighter clusters
-    config['OVERFLOW_PENALTY_KM'] = max(0.0, float(cfg.get("overflow_penalty_km", 15.0)))  # Increased penalty
-    config['DISTANCE_ISSUE_THRESHOLD'] = max(0.1, float(cfg.get("distance_issue_threshold_km", 6.0)))  # Reduced threshold
-    config['SWAP_IMPROVEMENT_THRESHOLD'] = max(0.0, float(cfg.get("swap_improvement_threshold_km", 0.3)))  # More sensitive
+    config['MAX_FILL_DISTANCE_KM'] = max(0.1, float(cfg.get("max_fill_distance_km", 5.0)))
+    config['MERGE_DISTANCE_KM'] = max(0.1, float(cfg.get("merge_distance_km", 3.0)))
+    config['DBSCAN_EPS_KM'] = max(0.1, float(cfg.get("dbscan_eps_km", 3.0)))
+    config['OVERFLOW_PENALTY_KM'] = max(0.0, float(cfg.get("overflow_penalty_km", 10.0)))
+    config['DISTANCE_ISSUE_THRESHOLD'] = max(0.1, float(cfg.get("distance_issue_threshold_km", 8.0)))
+    config['SWAP_IMPROVEMENT_THRESHOLD'] = max(0.0, float(cfg.get("swap_improvement_threshold_km", 0.5)))
 
-    # Utilization thresholds (0-1 range) - Made more strict for route quality
-    config['MIN_UTIL_THRESHOLD'] = max(0.0, min(1.0, float(cfg.get("min_util_threshold", 0.6))))  # Increased
-    config['LOW_UTILIZATION_THRESHOLD'] = max(0.0, min(1.0, float(cfg.get("low_utilization_threshold", 0.6))))  # Increased
+    # Utilization thresholds (0-1 range)
+    config['MIN_UTIL_THRESHOLD'] = max(0.0, min(1.0, float(cfg.get("min_util_threshold", 0.5))))
+    config['LOW_UTILIZATION_THRESHOLD'] = max(0.0, min(1.0, float(cfg.get("low_utilization_threshold", 0.5))))
 
     # Integer configurations (must be positive)
     config['MIN_SAMPLES_DBSCAN'] = max(1, int(cfg.get("min_samples_dbscan", 2)))
-    config['MAX_SWAP_ITERATIONS'] = max(1, int(cfg.get("max_swap_iterations", 5)))  # More iterations
+    config['MAX_SWAP_ITERATIONS'] = max(1, int(cfg.get("max_swap_iterations", 3)))
     config['MAX_USERS_FOR_FALLBACK'] = max(1, int(cfg.get("max_users_for_fallback", 3)))
     config['FALLBACK_MIN_USERS'] = max(1, int(cfg.get("fallback_min_users", 2)))
     config['FALLBACK_MAX_USERS'] = max(1, int(cfg.get("fallback_max_users", 7)))
 
-    # CRITICAL: Much stricter directional constraints
-    config['MAX_BEARING_DIFFERENCE'] = max(0, min(180, float(cfg.get("max_bearing_difference", 30))))  # Reduced from 45
-    config['MERGE_BEARING_TOLERANCE'] = max(0, min(180, float(cfg.get("merge_bearing_tolerance", 75))))  # Expanded for merging
-    config['DIRECTIONAL_CLUSTERING_WEIGHT'] = max(0.0, float(cfg.get("directional_clustering_weight", 0.8)))  # New parameter
-    config['ROUTE_EFFICIENCY_THRESHOLD'] = max(0.0, float(cfg.get("route_efficiency_threshold", 0.7)))  # New parameter
+    # Angle configurations (0-180 degrees)
+    config['MAX_BEARING_DIFFERENCE'] = max(0, min(180, float(cfg.get("max_bearing_difference", 45))))
 
-    # Cost penalties (must be non-negative) - Made more aggressive
-    config['UTILIZATION_PENALTY_PER_SEAT'] = max(0.0, float(cfg.get("utilization_penalty_per_seat", 0.5)))  # Reduced penalty
-    config['DIRECTIONAL_SCATTER_PENALTY'] = max(0.0, float(cfg.get("directional_scatter_penalty", 30.0)))  # Reduced penalty
-
-    # Global optimization parameters
-    config['GLOBAL_MERGE_DISTANCE_KM'] = max(0.1, float(cfg.get("global_merge_distance_km", 8.0)))
-    config['MIN_UTILIZATION_FOR_MERGE'] = max(0.0, min(1.0, float(cfg.get("min_utilization_for_merge", 0.5))))
-    config['PRIORITY_WEIGHT_MULTIPLIER'] = max(0.0, float(cfg.get("priority_weight_multiplier", 5.0)))
-    config['REGIONAL_MERGE_THRESHOLD_KM'] = max(0.1, float(cfg.get("regional_merge_threshold_km", 7.0)))
-    config['MIN_ROUTE_UTILIZATION'] = max(0.0, min(1.0, float(cfg.get("min_route_utilization", 0.6))))
+    # Cost penalties (must be non-negative)
+    config['UTILIZATION_PENALTY_PER_SEAT'] = max(0.0, float(cfg.get("utilization_penalty_per_seat", 3.0)))
 
     # Office coordinates with environment variable fallbacks
     office_lat = float(os.getenv("OFFICE_LAT", cfg.get("office_latitude", 30.6810489)))
@@ -96,7 +85,6 @@ MIN_UTIL_THRESHOLD = _config['MIN_UTIL_THRESHOLD']
 DBSCAN_EPS_KM = _config['DBSCAN_EPS_KM']
 MIN_SAMPLES_DBSCAN = _config['MIN_SAMPLES_DBSCAN']
 MAX_BEARING_DIFFERENCE = _config['MAX_BEARING_DIFFERENCE']
-MERGE_BEARING_TOLERANCE = _config['MERGE_BEARING_TOLERANCE']
 SWAP_IMPROVEMENT_THRESHOLD = _config['SWAP_IMPROVEMENT_THRESHOLD']
 MAX_SWAP_ITERATIONS = _config['MAX_SWAP_ITERATIONS']
 UTILIZATION_PENALTY_PER_SEAT = _config['UTILIZATION_PENALTY_PER_SEAT']
@@ -108,14 +96,6 @@ FALLBACK_MIN_USERS = _config['FALLBACK_MIN_USERS']
 FALLBACK_MAX_USERS = _config['FALLBACK_MAX_USERS']
 OFFICE_LAT = _config['OFFICE_LAT']
 OFFICE_LON = _config['OFFICE_LON']
-DIRECTIONAL_CLUSTERING_WEIGHT = _config['DIRECTIONAL_CLUSTERING_WEIGHT']
-ROUTE_EFFICIENCY_THRESHOLD = _config['ROUTE_EFFICIENCY_THRESHOLD']
-DIRECTIONAL_SCATTER_PENALTY = _config['DIRECTIONAL_SCATTER_PENALTY']
-GLOBAL_MERGE_DISTANCE_KM = _config['GLOBAL_MERGE_DISTANCE_KM']
-MIN_UTILIZATION_FOR_MERGE = _config['MIN_UTILIZATION_FOR_MERGE']
-PRIORITY_WEIGHT_MULTIPLIER = _config['PRIORITY_WEIGHT_MULTIPLIER']
-REGIONAL_MERGE_THRESHOLD_KM = _config['REGIONAL_MERGE_THRESHOLD_KM']
-MIN_ROUTE_UTILIZATION = _config['MIN_ROUTE_UTILIZATION']
 
 
 def validate_input_data(data):
@@ -288,23 +268,6 @@ def bearing_difference(b1, b2):
     return min(diff, 360 - diff)
 
 
-def calculate_bearing_vectorized(lat1, lon1, lat2, lon2):
-    """Vectorized bearing calculation"""
-    lat1, lat2 = np.radians(lat1), np.radians(lat2)
-    dlon = np.radians(lon2 - lon1)
-    x = np.sin(dlon) * np.cos(lat2)
-    y = np.cos(lat1) * np.sin(lat2) - np.sin(lat1) * np.cos(lat2) * np.cos(dlon)
-    return (np.degrees(np.arctan2(x, y)) + 360) % 360
-
-def calculate_bearing(lat1, lon1, lat2, lon2):
-    """Calculate bearing from point A to B in degrees"""
-    lat1, lat2 = map(math.radians, [lat1, lat2])
-    dlon = math.radians(lon2 - lon1)
-    x = math.sin(dlon) * math.cos(lat2)
-    y = math.cos(lat1) * math.sin(lat2) - math.sin(lat1) * math.cos(lat2) * math.cos(dlon)
-    return (math.degrees(math.atan2(x, y)) + 360) % 360
-
-
 def prepare_user_driver_dataframes(data):
     """Prepare and clean user and driver dataframes with priority system and deduplication"""
     users_list = data.get("users", [])
@@ -406,7 +369,8 @@ def prepare_user_driver_dataframes(data):
     driver_df['driver_id'] = driver_df['driver_id'].astype(str)
 
     # Sort drivers by priority (lower number = higher priority)
-    driver_df = driver_df.sort_values(['priority', 'capacity'], ascending=[True, False])
+    driver_df = driver_df.sort_values(['priority', 'capacity'],
+                                      ascending=[True, False])
 
     for col in ['latitude', 'longitude', 'office_distance']:
         user_df[col] = user_df[col].astype(float)
@@ -436,10 +400,26 @@ def haversine_distance(lat1, lon1, lat2, lon2):
     return abs(R * c)  # Ensure positive distance
 
 
+def calculate_bearing(lat1, lon1, lat2, lon2):
+    """Calculate bearing from point A to B in degrees"""
+    lat1, lat2 = map(math.radians, [lat1, lat2])
+    dlon = math.radians(lon2 - lon1)
+    x = math.sin(dlon) * math.cos(lat2)
+    y = math.cos(lat1) * math.sin(lat2) - math.sin(lat1) * math.cos(lat2) * math.cos(dlon)
+    return (math.degrees(math.atan2(x, y)) + 360) % 360
+
+
 def calculate_bearings_and_features(user_df, office_lat, office_lon):
     """Calculate bearings and add geographical features - OFFICE TO USER direction"""
     user_df = user_df.copy()
     user_df[['office_latitude', 'office_longitude']] = office_lat, office_lon
+
+    def calculate_bearing_vectorized(lat1, lon1, lat2, lon2):
+        lat1, lat2 = np.radians(lat1), np.radians(lat2)
+        dlon = np.radians(lon2 - lon1)
+        x = np.sin(dlon) * np.cos(lat2)
+        y = np.cos(lat1) * np.sin(lat2) - np.sin(lat1) * np.cos(lat2) * np.cos(dlon)
+        return (np.degrees(np.arctan2(x, y)) + 360) % 360
 
     # Calculate bearing FROM OFFICE TO USER (standardized direction)
     user_df['bearing'] = calculate_bearing_vectorized(office_lat, office_lon,
@@ -461,607 +441,421 @@ def calculate_bearings_and_features(user_df, office_lat, office_lon):
     return user_df
 
 
-def directional_first_clustering(user_df, office_lat, office_lon):
+# ENHANCED BUT SIMPLIFIED CLUSTERING
+def enhanced_geographical_clustering(user_df, office_lat, office_lon):
     """
-    ULTRA-STRICT DIRECTIONAL CLUSTERING: Prevents any directional violations
+    Enhanced clustering that handles single user edge case with improved vector clustering
     """
     coords = user_df[['latitude', 'longitude']].values
 
     # Handle single user case
     if len(user_df) == 1:
         user_df = user_df.copy()
-        user_df['directional_cluster'] = 0
+        user_df['geo_cluster'] = 0
         return user_df, {
             'method': 'Single User Assignment',
             'clusters': 1
         }
 
-    # STEP 1: ULTRA-STRICT DIRECTIONAL SECTORS
-    bearings = user_df['bearing'].values
-    print(f"🧭 ULTRA-STRICT DIRECTIONAL CLUSTERING: {len(user_df)} users")
+    # Enhanced vector-based clustering with bearing and distance features
+    # Create comprehensive feature vector: [lat, lng, bearing_weight, distance_weight]
+    bearing_weight = 0.4  # Increased from 0.3 for better directional clustering
+    distance_weight = 0.2
 
-    # Create bearing-based sectors with STRICT enforcement
-    sector_size = MAX_BEARING_DIFFERENCE  # 30 degrees per sector
-    n_sectors = int(360 / sector_size)  # 12 sectors of 30 degrees each
-    
-    # Assign users to sectors based on bearing
-    sectors = []
-    for i in range(n_sectors):
-        sector_start = i * sector_size
-        sector_end = (i + 1) * sector_size
-        sector_users = []
-        
-        for idx, bearing in enumerate(bearings):
-            # Handle wrap-around at 360/0 degrees
-            if sector_start <= bearing < sector_end:
-                sector_users.append(idx)
-            elif i == n_sectors - 1 and bearing >= sector_end:  # Last sector includes 360
-                sector_users.append(idx)
-        
-        if sector_users:
-            sectors.append(sector_users)
-    
-    # Handle 0-degree wrap-around specially
-    if sectors:
-        first_sector = sectors[0] if sectors else []
-        last_sector = sectors[-1] if len(sectors) > 1 else []
-        
-        # Check if first and last sectors can be merged (near 0/360 degrees)
-        if first_sector and last_sector:
-            first_bearing_avg = np.mean([bearings[i] for i in first_sector])
-            last_bearing_avg = np.mean([bearings[i] for i in last_sector])
-            
-            # Calculate wrap-around distance
-            wrap_distance = min(
-                abs(first_bearing_avg - last_bearing_avg),
-                360 - abs(first_bearing_avg - last_bearing_avg)
-            )
-            
-            if wrap_distance <= MAX_BEARING_DIFFERENCE:
-                # Merge first and last sectors
-                sectors[0].extend(sectors[-1])
-                sectors.pop()
+    # Calculate distance from office (normalized)
+    distances_from_office = np.array([
+        haversine_distance(office_lat, office_lon, lat, lng)
+        for lat, lng in coords
+    ])
+    max_distance = max(distances_from_office) if len(distances_from_office) > 0 else 1
+    normalized_distances = distances_from_office / max_distance
 
-    print(f"🎯 STEP 1: Created {len(sectors)} ultra-strict directional sectors")
+    # Create enhanced feature matrix
+    enhanced_features = np.column_stack([
+        coords[:, 0],  # latitude
+        coords[:, 1],  # longitude
+        user_df['bearing_sin'].values * bearing_weight,  # bearing component
+        user_df['bearing_cos'].values * bearing_weight,  # bearing component
+        normalized_distances * distance_weight  # distance from office
+    ])
 
-    # STEP 2: VALIDATE DIRECTIONAL COHERENCE
-    # Ensure no cluster has users > MAX_BEARING_DIFFERENCE apart
+    # Try vector-enhanced DBSCAN first
+    scaler = StandardScaler()
+    scaled_features = scaler.fit_transform(enhanced_features)
+
+    # Use feature-based DBSCAN
+    clustering = DBSCAN(eps=0.5, min_samples=MIN_SAMPLES_DBSCAN).fit(scaled_features)
+    user_df = user_df.copy()
+    user_df['geo_cluster'] = clustering.labels_
+
+    # Post-process clusters to avoid users in opposite directions
     refined_clusters = []
     cluster_id_counter = 0
 
-    for cluster_id in np.unique(directional_clusters):
-        cluster_mask = user_df['directional_cluster'] == cluster_id
-        cluster_users = user_df[cluster_mask]
-        cluster_bearings = cluster_users['bearing'].values
+    for cluster_id in user_df['geo_cluster'].unique():
+        if cluster_id == -1:  # Skip noise points for now
+            continue
 
-        if len(cluster_bearings) <= 1:
-            # Single user clusters are perfect
-            refined_clusters.extend([(idx, cluster_id_counter) for idx in cluster_users.index])
+        cluster_users = user_df[user_df['geo_cluster'] == cluster_id]
+
+        if len(cluster_users) <= 1:
+            # Single user clusters are fine
+            refined_clusters.append((cluster_users.index, cluster_id_counter))
             cluster_id_counter += 1
             continue
 
-        # Check if this directional cluster is coherent
-        max_bearing_spread = 0
-        for i in range(len(cluster_bearings)):
-            for j in range(i + 1, len(cluster_bearings)):
-                spread = bearing_difference(cluster_bearings[i], cluster_bearings[j])
-                max_bearing_spread = max(max_bearing_spread, spread)
+        # Check bearing spread within cluster
+        bearings = cluster_users['bearing'].values
+        max_bearing_diff = 0
+        for i in range(len(bearings)):
+            for j in range(i + 1, len(bearings)):
+                diff = bearing_difference(bearings[i], bearings[j])
+                max_bearing_diff = max(max_bearing_diff, diff)
 
-        print(f"   📐 Cluster {cluster_id}: {len(cluster_users)} users, max spread: {max_bearing_spread:.1f}°")
+        # If users are too spread in bearing (>90 degrees), split the cluster
+        if max_bearing_diff > 90 and len(cluster_users) > 2:
+            # Split based on bearing similarity
+            bearings_for_clustering = np.column_stack([
+                np.sin(np.radians(bearings)),
+                np.cos(np.radians(bearings))
+            ])
 
-        if max_bearing_spread <= MAX_BEARING_DIFFERENCE:
-            # Cluster is directionally coherent - keep it
-            refined_clusters.extend([(idx, cluster_id_counter) for idx in cluster_users.index])
+            sub_clusters = min(2, len(cluster_users))  # Split into max 2 sub-clusters
+            kmeans = KMeans(n_clusters=sub_clusters, random_state=42)
+            sub_labels = kmeans.fit_predict(bearings_for_clustering)
+
+            for sub_label in range(sub_clusters):
+                sub_cluster_indices = cluster_users.index[sub_labels == sub_label]
+                if len(sub_cluster_indices) > 0:
+                    refined_clusters.append((sub_cluster_indices, cluster_id_counter))
+                    cluster_id_counter += 1
+        else:
+            # Cluster is geographically and directionally compact
+            refined_clusters.append((cluster_users.index, cluster_id_counter))
             cluster_id_counter += 1
+
+    # Apply refined clustering
+    for indices, new_cluster_id in refined_clusters:
+        user_df.loc[indices, 'geo_cluster'] = new_cluster_id
+
+    # Handle noise points by assigning to nearest cluster
+    noise_mask = user_df['geo_cluster'] == -1
+    if noise_mask.any():
+        noise_points = user_df[noise_mask][['latitude', 'longitude']].values
+        valid_clusters = user_df[user_df['geo_cluster'] != -1]
+
+        if not valid_clusters.empty:
+            cluster_centers = valid_clusters.groupby('geo_cluster')[[
+                'latitude', 'longitude'
+            ]].mean().values
+            distances = cdist(noise_points,
+                              cluster_centers,
+                              metric='euclidean')
+            nearest_clusters = valid_clusters['geo_cluster'].unique()[
+                np.argmin(distances, axis=1)]
+            user_df.loc[noise_mask, 'geo_cluster'] = nearest_clusters
         else:
-            # Split this cluster further by bearing similarity
-            if len(cluster_bearings) >= 2:
-                # Use hierarchical bearing-based splitting
-                n_splits = min(3, len(cluster_bearings))  # Max 3 splits per cluster
-                sub_kmeans = KMeans(n_clusters=n_splits, random_state=42)
-                sub_bearing_vectors = np.column_stack([
-                    np.cos(np.radians(cluster_bearings)),
-                    np.sin(np.radians(cluster_bearings))
-                ])
-                sub_clusters = sub_kmeans.fit_predict(sub_bearing_vectors)
+            user_df.loc[noise_mask, 'geo_cluster'] = 0
 
-                for sub_id in range(n_splits):
-                    sub_mask = sub_clusters == sub_id
-                    sub_indices = cluster_users.index[sub_mask]
-                    if len(sub_indices) > 0:
-                        refined_clusters.extend([(idx, cluster_id_counter) for idx in sub_indices])
-                        cluster_id_counter += 1
-            else:
-                # Single user fallback
-                refined_clusters.extend([(idx, cluster_id_counter) for idx in cluster_users.index])
-                cluster_id_counter += 1
+    # If DBSCAN fails completely or produces too few clusters, use bearing-enhanced K-means as fallback
+    n_clusters_after_dbscan = user_df['geo_cluster'].nunique()
+    if n_clusters_after_dbscan <= 1:
+        print("📊 DBSCAN failed or produced too few clusters, using bearing-enhanced K-means fallback...")
+        coords_features = user_df[[
+            'latitude', 'longitude', 'bearing_sin', 'bearing_cos'
+        ]].values
+        # Weight coordinates more heavily than bearing
+        weights = np.array([1.0, 1.0, 0.3, 0.3])
+        weighted_features = coords_features * weights
+        scaled_features = StandardScaler().fit_transform(weighted_features)
 
-    # Apply refined directional clustering
-    for idx, new_cluster_id in refined_clusters:
-        user_df.loc[idx, 'directional_cluster'] = new_cluster_id
+        # Fix: Handle edge case where we have very few users
+        # Determine optimal number of clusters based on data size, capped by available drivers
+        optimal_clusters = min(6, max(1, len(user_df) // 3))
 
-    # STEP 3: GEOGRAPHICAL REFINEMENT WITHIN DIRECTIONAL CLUSTERS
-    # Now split large directional clusters by geography, but NEVER mix directions
-    final_refined_clusters = []
-    final_cluster_id = 0
-
-    for cluster_id in user_df['directional_cluster'].unique():
-        cluster_users = user_df[user_df['directional_cluster'] == cluster_id]
-
-        if len(cluster_users) <= 6:  # Small clusters stay as-is
-            final_refined_clusters.extend([(idx, final_cluster_id) for idx in cluster_users.index])
-            final_cluster_id += 1
+        # Use KMeans as fallback with optimal cluster count
+        # Handle single user case in fallback
+        if len(user_df) == 1:
+            user_df['geo_cluster'] = 0
+            n_clusters = 1
+            method_used = "Single User Assignment"
         else:
-            # Large directional cluster - split by geography
-            cluster_coords = cluster_users[['latitude', 'longitude']].values
+            n_clusters = min(optimal_clusters, len(user_df))
+            kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+            user_df['geo_cluster'] = kmeans.fit_predict(scaled_features)
+            method_used = "Enhanced K-means"
+    else:
+        method_used = 'DBSCAN'
 
-            # Determine number of geographical sub-clusters
-            n_geo_splits = min(3, len(cluster_users) // 3)  # Each sub-cluster has ~3+ users
-            n_geo_splits = max(1, n_geo_splits)
-
-            if n_geo_splits > 1:
-                geo_kmeans = KMeans(n_clusters=n_geo_splits, random_state=42)
-                geo_clusters = geo_kmeans.fit_predict(cluster_coords)
-
-                for geo_id in range(n_geo_splits):
-                    geo_mask = geo_clusters == geo_id
-                    geo_indices = cluster_users.index[geo_mask]
-                    if len(geo_indices) > 0:
-                        final_refined_clusters.extend([(idx, final_cluster_id) for idx in geo_indices])
-                        final_cluster_id += 1
-            else:
-                final_refined_clusters.extend([(idx, final_cluster_id) for idx in cluster_users.index])
-                final_cluster_id += 1
-
-    # Apply final clustering
-    for idx, new_cluster_id in final_refined_clusters:
-        user_df.loc[idx, 'directional_cluster'] = new_cluster_id
-
-    final_clusters = len(user_df['directional_cluster'].unique())
-    print(f"🎯 FINAL: {final_clusters} directionally-coherent geographical clusters")
-
-    # STEP 4: FINAL VALIDATION
-    # Verify no cluster violates directional constraints
-    validation_passed = True
-    for cluster_id in user_df['directional_cluster'].unique():
-        cluster_users = user_df[user_df['directional_cluster'] == cluster_id]
-        if len(cluster_users) > 1:
-            cluster_bearings = cluster_users['bearing'].values
-            max_spread = max(bearing_difference(cluster_bearings[i], cluster_bearings[j])
-                           for i in range(len(cluster_bearings))
-                           for j in range(i + 1, len(cluster_bearings)))
-
-            if max_spread > MAX_BEARING_DIFFERENCE:
-                print(f"⚠️ WARNING: Cluster {cluster_id} has bearing spread {max_spread:.1f}° > {MAX_BEARING_DIFFERENCE}°")
-                validation_passed = False
-
-    if validation_passed:
-        print("✅ All clusters pass directional validation")
+    print(
+        f"🗂️ Clustering complete: {user_df['geo_cluster'].nunique()} clusters using {method_used}"
+    )
 
     return user_df, {
-        'method': 'Directional-First Clustering',
-        'clusters': final_clusters,
-        'validation_passed': validation_passed
+        'method': method_used,
+        'clusters': user_df['geo_cluster'].nunique()
     }
 
 
-def calculate_route_efficiency_score(user_positions, office_lat, office_lon):
-    """
-    Calculate a route efficiency score (0-1, higher is better)
-    Based on directional coherence and geographical compactness
-    """
-    if len(user_positions) <= 1:
-        return 1.0  # Perfect efficiency for single user
-
-    # Calculate directional coherence
-    user_bearings = [calculate_bearing(office_lat, office_lon, pos[0], pos[1]) for pos in user_positions]
-
-    # Convert to unit vectors for coherence calculation
-    vectors = [np.array([np.cos(np.radians(b)), np.sin(np.radians(b))]) for b in user_bearings]
-    mean_vector = np.mean(vectors, axis=0)
-    directional_coherence = np.linalg.norm(mean_vector)  # 0 = scattered, 1 = aligned
-
-    # Calculate geographical compactness
-    center = np.mean(user_positions, axis=0)
-    distances_from_center = [haversine_distance(center[0], center[1], pos[0], pos[1]) for pos in user_positions]
-    avg_distance_from_center = np.mean(distances_from_center)
-
-    # Normalize compactness (assume 10km is very spread out)
-    geographical_compactness = max(0, 1 - (avg_distance_from_center / 10.0))
-
-    # Combined efficiency score (directional coherence is more important)
-    efficiency_score = (0.7 * directional_coherence) + (0.3 * geographical_compactness)
-
-    return min(1.0, max(0.0, efficiency_score))
-
-
-def calculate_optimized_cost(route_data, driver_pos, user_positions, office_lat, office_lon):
-    """
-    COMPLETELY REVAMPED cost function that prioritizes route efficiency
-    Heavy penalties for directionally scattered routes
-    """
+# SIMPLIFIED COST FUNCTION
+def calculate_enhanced_cost(route, driver_pos, user_positions, office_lat,
+                            office_lon):
+    """Enhanced cost function with vector-based bearing calculations"""
     if not user_positions:
         return float('inf')
 
-    # EFFICIENCY SCORE (Primary factor - 60% weight)
-    efficiency_score = calculate_route_efficiency_score(user_positions, office_lat, office_lon)
-    efficiency_cost = (1 - efficiency_score) * DIRECTIONAL_SCATTER_PENALTY  # Heavy penalty for poor efficiency
-
-    # DISTANCE COST (Secondary factor - 25% weight)
+    # Distance component (primary factor)
     centroid = np.mean(user_positions, axis=0)
-    distance_to_centroid = haversine_distance(driver_pos[0], driver_pos[1], centroid[0], centroid[1])
+    distance_cost = haversine_distance(driver_pos[0], driver_pos[1],
+                                       centroid[0], centroid[1])
 
-    # Average distance from driver to all users
-    avg_distance_to_users = np.mean([
-        haversine_distance(driver_pos[0], driver_pos[1], pos[0], pos[1])
-        for pos in user_positions
-    ])
+    # Utilization component (secondary factor)
+    utilization = len(user_positions) / route.get('capacity', 1)
+    utilization_penalty = (1 - utilization) * UTILIZATION_PENALTY_PER_SEAT
 
-    distance_cost = (distance_to_centroid + avg_distance_to_users) / 2
-
-    # UTILIZATION COST (Tertiary factor - 15% weight)
-    capacity = route_data.get('capacity', 1)
-    utilization = len(user_positions) / capacity
-    utilization_cost = (1 - utilization) * UTILIZATION_PENALTY_PER_SEAT
-
-    # TOTAL ROUTE COMPACTNESS (check total travel distance within route)
-    total_internal_distance = 0
+    # Vector-based directional efficiency (CRITICAL factor)
+    bearing_penalty = 0
     if len(user_positions) > 1:
+        # Convert bearings to unit vectors for better clustering analysis
+        user_vectors = []
+        for pos in user_positions:
+            bearing_rad = np.radians(calculate_bearing(office_lat, office_lon, pos[0], pos[1]))
+            # Convert to unit vector (x, y components)
+            vector = np.array([np.cos(bearing_rad), np.sin(bearing_rad)])
+            user_vectors.append(vector)
+
+        # Calculate vector coherence (how aligned are the directions)
+        if len(user_vectors) > 1:
+            # Mean vector magnitude indicates directional coherence
+            mean_vector = np.mean(user_vectors, axis=0)
+            vector_magnitude = np.linalg.norm(mean_vector)
+
+            # Penalty inversely proportional to coherence (0 = scattered, 1 = aligned)
+            coherence_penalty = (1 - vector_magnitude) * 25.0  # Higher penalty for scattered directions
+            bearing_penalty += coherence_penalty
+
+            # Additional penalty for maximum angular spread
+            angles = [np.arctan2(v[1], v[0]) for v in user_vectors]
+            max_angular_spread = max(angles) - min(angles)
+            if max_angular_spread > np.pi:  # Handle wrap-around
+                max_angular_spread = 2 * np.pi - max_angular_spread
+
+            # Convert to degrees and apply penalty
+            spread_degrees = np.degrees(max_angular_spread)
+            if spread_degrees > 90:
+                bearing_penalty += (spread_degrees - 90) * 0.5
+
+        # Calculate bearing spread - heavy penalty for users in opposite directions
+        user_bearings = [calculate_bearing(office_lat, office_lon, pos[0], pos[1]) for pos in user_positions]
+        bearing_differences = []
+        for i in range(len(user_bearings)):
+            for j in range(i + 1, len(user_bearings)):
+                diff = bearing_difference(user_bearings[i], user_bearings[j])
+                bearing_differences.append(diff)
+
+        if bearing_differences:
+            max_bearing_diff = max(bearing_differences)
+            # EXTREME penalty for users in opposite directions (>90 degrees apart)
+            if max_bearing_diff > 90:
+                bearing_penalty = 50.0 + (max_bearing_diff - 90) * 2.0  # Very high base penalty + 2km per degree
+            # Heavy penalty for widely spread users (>60 degrees apart)
+            elif max_bearing_diff > 60:
+                bearing_penalty = (max_bearing_diff - 60) * 0.5  # 0.5 km penalty per degree over 60
+            # Moderate penalty for moderately spread users (>30 degrees apart)
+            elif max_bearing_diff > 30:
+                bearing_penalty = (max_bearing_diff - 30) * 0.2  # 0.2 km penalty per degree over 30
+
+        # Compactness penalty - users should be geographically close
+        distances = [
+            haversine_distance(pos[0], pos[1], centroid[0], centroid[1])
+            for pos in user_positions
+        ]
+        compactness_penalty = np.std(distances) * 0.3
+
+        # Route efficiency penalty - total travel distance within route
+        total_route_distance = 0
         for i in range(len(user_positions)):
             for j in range(i + 1, len(user_positions)):
-                total_internal_distance += haversine_distance(
+                total_route_distance += haversine_distance(
                     user_positions[i][0], user_positions[i][1],
                     user_positions[j][0], user_positions[j][1]
                 )
 
-        # Average internal distance - penalty for spread out routes
-        avg_internal_distance = total_internal_distance / (len(user_positions) * (len(user_positions) - 1) / 2)
-        compactness_cost = avg_internal_distance * 0.5  # Moderate penalty for spread
+        # Average inter-user distance penalty
+        if len(user_positions) > 1:
+            avg_inter_distance = total_route_distance / (len(user_positions) * (len(user_positions) - 1) / 2)
+            distance_spread_penalty = avg_inter_distance * 0.2  # Penalty for spread out users
+        else:
+            distance_spread_penalty = 0
     else:
-        compactness_cost = 0
+        compactness_penalty = 0
+        distance_spread_penalty = 0
 
-    # WEIGHTED TOTAL COST
-    total_cost = (
-        efficiency_cost * 0.60 +     # Route efficiency is MOST important
-        distance_cost * 0.25 +       # Distance is secondary
-        utilization_cost * 0.10 +    # Utilization is tertiary
-        compactness_cost * 0.05      # Compactness is minor factor
-    )
-
-    # Additional penalty for violating directional constraints
-    if len(user_positions) > 1:
-        user_bearings = [calculate_bearing(office_lat, office_lon, pos[0], pos[1]) for pos in user_positions]
-        max_bearing_spread = max(bearing_difference(user_bearings[i], user_bearings[j])
-                               for i in range(len(user_bearings))
-                               for j in range(i + 1, len(user_bearings)))
-
-        if max_bearing_spread > MAX_BEARING_DIFFERENCE:
-            # MASSIVE penalty for violating directional constraints
-            directional_violation_penalty = (max_bearing_spread - MAX_BEARING_DIFFERENCE) * 10.0
-            total_cost += directional_violation_penalty
-
+    total_cost = (distance_cost + utilization_penalty + bearing_penalty +
+                  compactness_penalty + distance_spread_penalty)
     return total_cost
 
 
-def priority_driver_assignment(user_df, driver_df):
+def optimize_driver_assignment(user_df, driver_df):
     """
-    ENHANCED PRIORITY-FIRST assignment with strict seat filling and directional coherence
+    Optimized driver assignment with priority system
+    Priority: 1 (driversUnassigned shift_type 1,3) > 2 (driversUnassigned shift_type 2) > 3 (driversAssigned shift_type 1,3) > 4 (driversAssigned shift_type 2)
     """
-    routes = []
-    available_drivers = driver_df.sort_values(['priority', 'capacity'], ascending=[True, False]).copy()
+    drivers_and_routes = []
+    # Sort by priority first, then by capacity (descending)
+    available_drivers = driver_df.sort_values(['priority', 'capacity'],
+                                              ascending=[True, False]).copy()
     assigned_user_ids = set()
+
+    print(f"🚗 Driver priority distribution:")
+    for priority in [1, 2, 3, 4]:
+        count = len(available_drivers[available_drivers['priority'] == priority])
+        priority_desc = {
+            1: "driversUnassigned (shift_type 1,3)",
+            2: "driversUnassigned (shift_type 2)",
+            3: "driversAssigned (shift_type 1,3)",
+            4: "driversAssigned (shift_type 2)"
+        }
+        print(f"   Priority {priority}: {count} drivers - {priority_desc[priority]}")
+
+    # Debug: Print first few drivers to verify sorting
+    print(f"🔍 First 5 drivers after priority sorting:")
+    for i, (_, driver) in enumerate(available_drivers.head(5).iterrows()):
+        is_assigned_text = "driversAssigned" if driver['is_assigned'] else "driversUnassigned"
+        print(f"   {i+1}. Driver {driver['driver_id']}: Priority {driver['priority']}, {is_assigned_text}, Capacity {driver['capacity']}")
+
     used_driver_indices = set()
 
-    print(f"🎯 ENHANCED PRIORITY-FIRST ASSIGNMENT")
-    print(f"   Available drivers: {len(available_drivers)}")
-
-    # Process drivers by STRICT priority order
-    for priority_level in [1, 2, 3, 4]:
-        priority_drivers = available_drivers[
-            (available_drivers['priority'] == priority_level) & 
-            (~available_drivers.index.isin(used_driver_indices))
-        ].copy()
-
-        if priority_drivers.empty or user_df[~user_df['user_id'].isin(assigned_user_ids)].empty:
-            continue
-
-        print(f"\n🥇 Processing Priority {priority_level} drivers: {len(priority_drivers)} available")
-
-        # For each priority level, assign drivers to maximize seat utilization
-        for _, driver in priority_drivers.iterrows():
-            unassigned_users = user_df[~user_df['user_id'].isin(assigned_user_ids)].copy()
-
-            if unassigned_users.empty:
-                break
-
-            driver_pos = (driver['latitude'], driver['longitude'])
-            capacity = driver['capacity']
-            
-            # Find the BEST combination of users for maximum utilization
-            best_user_combination = None
-            best_score = float('inf')
-            best_utilization = 0
-
-            # Try each directional cluster
-            for cluster_id, cluster_users in unassigned_users.groupby('directional_cluster'):
-                # STRICT: Only consider clusters with good directional coherence
-                if len(cluster_users) > 1:
-                    cluster_bearings = cluster_users['bearing'].values
-                    max_spread = max(bearing_difference(cluster_bearings[i], cluster_bearings[j])
-                                   for i in range(len(cluster_bearings))
-                                   for j in range(i + 1, len(cluster_bearings)))
-                
-                    if max_spread > MAX_BEARING_DIFFERENCE:
-                        print(f"     ❌ Cluster {cluster_id} rejected: bearing spread {max_spread:.1f}° > {MAX_BEARING_DIFFERENCE}°")
-                        continue
-
-                # Calculate distance to cluster centroid
-                cluster_centroid = (cluster_users['latitude'].mean(), cluster_users['longitude'].mean())
-                distance_to_cluster = haversine_distance(driver_pos[0], driver_pos[1], 
-                                                           cluster_centroid[0], cluster_centroid[1])
-
-                # Try different combinations to maximize seat utilization
-                cluster_size = len(cluster_users)
-                
-                if cluster_size >= capacity:
-                    # Perfect or over-utilization - take best capacity users by distance
-                    distances = [haversine_distance(driver_pos[0], driver_pos[1], 
-                                                    row['latitude'], row['longitude']) 
-                                 for _, row in cluster_users.iterrows()]
-                    sorted_indices = sorted(range(len(distances)), key=lambda i: distances[i])
-                    users_to_take = cluster_users.iloc[sorted_indices[:capacity]]
-                    utilization = 1.0  # Perfect utilization
-                    
-                else:
-                    # Under-utilization - try to fill from nearby clusters
-                    users_to_take = cluster_users.copy()
-                    
-                    # Look for compatible users from nearby clusters within same direction
-                    for other_cluster_id, other_cluster in unassigned_users.groupby('directional_cluster'):
-                        if other_cluster_id == cluster_id or len(users_to_take) >= capacity:
-                            continue
-                        
-                        # Check if other cluster is in compatible direction
-                        if len(other_cluster) > 0:
-                            primary_bearing = cluster_users['bearing'].mean()
-                            other_bearing = other_cluster['bearing'].mean()
-                            bearing_diff = bearing_difference(primary_bearing, other_bearing)
-                            
-                            if bearing_diff <= MAX_BEARING_DIFFERENCE:
-                                # Add compatible users by distance
-                                other_distances = [haversine_distance(driver_pos[0], driver_pos[1], 
-                                                                        row['latitude'], row['longitude']) 
-                                                   for _, row in other_cluster.iterrows()]
-                                sorted_other = other_cluster.iloc[sorted(range(len(other_distances)), 
-                                                                        key=lambda i: other_distances[i])]
-                                
-                                slots_remaining = capacity - len(users_to_take)
-                                compatible_users = sorted_other.head(min(slots_remaining, len(sorted_other)))
-                                
-                                # Verify final directional coherence
-                                test_users = pd.concat([users_to_take, compatible_users])
-                                if len(test_users) > 1:
-                                    test_bearings = test_users['bearing'].values
-                                    final_spread = max(bearing_difference(test_bearings[i], test_bearings[j])
-                                                     for i in range(len(test_bearings))
-                                                     for j in range(i + 1, len(test_bearings)))
-                                    
-                                    if final_spread <= MAX_BEARING_DIFFERENCE:
-                                        users_to_take = test_users
-                
-
-                # Calculate route quality score
-                avg_distance = np.mean([haversine_distance(driver_pos[0], driver_pos[1], 
-                                                         row['latitude'], row['longitude']) 
-                                      for _, row in users_to_take.iterrows()])
-                
-                # Score prioritizes: high utilization, low distance, directional coherence
-                utilization_bonus = (utilization ** 2) * 10  # Heavily reward high utilization
-                distance_penalty = avg_distance
-                
-                score = distance_penalty - utilization_bonus
-                
-                if utilization > best_utilization or (utilization == best_utilization and score < best_score):
-                    best_score = score
-                    best_utilization = utilization
-                    best_user_combination = users_to_take
-
-            if best_user_combination is not None and len(best_user_combination) > 0:
-                print(f"   ✅ Driver {driver.name} (P{priority_level}): {len(best_user_combination)} users, {best_utilization:.1%} utilization")
-
-                # Create route
-                driver_data = driver.to_dict()
-                if 'driver_id' not in driver_data and hasattr(driver, 'name'):
-                    driver_data['driver_id'] = str(driver.name)
-
-                route = create_route_from_users(
-                    driver_data,
-                    best_user_combination.to_dict('records'),
-                    user_df.iloc[0]['office_latitude'],
-                    user_df.iloc[0]['office_longitude'])
-
-                # Track assigned users
-                for _, user in best_user_combination.iterrows():
-                    assigned_user_ids.add(user['user_id'])
-
-                routes.append(route)
-                used_driver_indices.add(driver.name)
-
-    print(f"\n🎯 ENHANCED ASSIGNMENT COMPLETE:")
-    print(f"   Routes created: {len(routes)}")
-    print(f"   Users assigned: {len(assigned_user_ids)}")
-    print(f"   Average utilization: {np.mean([len(r['assigned_users'])/r['vehicle_type'] for r in routes]):.1%}")
-
-    return routes, assigned_user_ids
-
-
-def optimal_cluster_assignment(user_df, driver_df):
-    """
-    OPTIMAL cluster assignment that respects both priority and route efficiency
-    """
-    routes = []
-    available_drivers = driver_df.sort_values(['priority', 'capacity'], ascending=[True, False]).copy()
-    assigned_user_ids = set()
-    used_driver_indices = set()
-
-    print(f"🎯 OPTIMAL CLUSTER ASSIGNMENT")
-
-    # Process each directional cluster
-    for cluster_id, cluster_users in user_df.groupby('directional_cluster'):
-        unassigned_in_cluster = cluster_users[~cluster_users['user_id'].isin(assigned_user_ids)].copy()
+    for cluster_id, cluster_users in user_df.groupby('geo_cluster'):
+        unassigned_in_cluster = cluster_users[~cluster_users['user_id'].
+                                              isin(assigned_user_ids)].copy()
 
         if unassigned_in_cluster.empty or len(used_driver_indices) >= len(available_drivers):
             continue
 
-        print(f"\n🧭 Processing directional cluster {cluster_id}: {len(unassigned_in_cluster)} users")
-
-        # For each cluster, create optimal sub-routes based on capacity constraints
+        total_users = len(unassigned_in_cluster)
         available_driver_indices = [i for i in available_drivers.index if i not in used_driver_indices]
-        remaining_drivers = available_drivers.loc[available_driver_indices]
 
-        if remaining_drivers.empty:
-            print(f"   ⚠️ No drivers available for cluster {cluster_id}")
+        if not available_driver_indices:
             continue
 
-        # Determine how many sub-routes we need for this cluster
-        total_users = len(unassigned_in_cluster)
+        remaining_drivers = available_drivers.loc[available_driver_indices]
         avg_capacity = remaining_drivers['capacity'].mean()
         max_capacity = remaining_drivers['capacity'].max()
 
-        # Calculate optimal number of routes for this cluster
         if total_users <= max_capacity:
-            target_routes = 1
+            sub_clusters = 1
         else:
-            target_routes = min(
-                math.ceil(total_users / avg_capacity),
-                len(available_driver_indices),
-                math.ceil(total_users / 6)  # Max 6 users per route for efficiency
-            )
+            sub_clusters = min(max(1, round(total_users / avg_capacity)),
+                               len(available_driver_indices), total_users)
 
-        print(f"   📊 Target routes for cluster: {target_routes}")
-
-        # Create geographically tight sub-clusters within this directional cluster
-        if target_routes > 1 and len(unassigned_in_cluster) > 1:
+        if sub_clusters > 1 and len(unassigned_in_cluster) > 1:
             coords = unassigned_in_cluster[['latitude', 'longitude']].values
-            actual_subclusters = min(target_routes, len(unassigned_in_cluster))
-
-            if actual_subclusters > 1:
-                kmeans = KMeans(n_clusters=actual_subclusters, random_state=42)
+            # Ensure we don't try to create more clusters than data points
+            actual_clusters = min(sub_clusters, len(unassigned_in_cluster))
+            if actual_clusters > 1:
+                kmeans = KMeans(n_clusters=actual_clusters, random_state=42)
                 unassigned_in_cluster['sub_cluster'] = kmeans.fit_predict(coords)
             else:
                 unassigned_in_cluster['sub_cluster'] = 0
         else:
             unassigned_in_cluster['sub_cluster'] = 0
 
-        # Process each sub-cluster to find the optimal driver assignment
         for sub_id, sub_users in unassigned_in_cluster.groupby('sub_cluster'):
             if sub_users.empty or len(used_driver_indices) >= len(available_drivers):
                 continue
 
-            user_positions = [(row['latitude'], row['longitude']) for _, row in sub_users.iterrows()]
+            sub_centroid = sub_users[['latitude', 'longitude']].mean().values
             users_needed = len(sub_users)
 
-            print(f"     📍 Sub-cluster {sub_id}: {users_needed} users")
-
-            # Find the OPTIMAL driver for this specific user group
             best_driver_idx = None
-            best_cost = float('inf')
-            best_efficiency_score = 0
+            min_cost = float('inf')
+            best_priority = float('inf')
 
-            available_driver_indices_current = [i for i in available_drivers.index if i not in used_driver_indices]
+            # Get remaining available drivers
+            available_driver_indices = [i for i in available_drivers.index if i not in used_driver_indices]
 
-            # Evaluate ALL available drivers for this route to find the optimal one
-            driver_candidates = []
-
-            for driver_idx in available_driver_indices_current:
+            # Find the best driver considering priority, bearing, and distance
+            for driver_idx in available_driver_indices:
                 driver = available_drivers.loc[driver_idx]
                 driver_pos = (driver['latitude'], driver['longitude'])
 
-                # Calculate route efficiency if this driver takes these users
-                route_efficiency = calculate_route_efficiency_score(user_positions,
-                                                                  user_df.iloc[0]['office_latitude'],
-                                                                  user_df.iloc[0]['office_longitude'])
+                # Calculate basic distance cost
+                distance = haversine_distance(driver_pos[0], driver_pos[1],
+                                              sub_centroid[0], sub_centroid[1])
 
-                # Calculate total cost with new optimized cost function
+                # Calculate bearing alignment between driver and users relative to office
+                user_positions = [(row['latitude'], row['longitude']) for _, row in sub_users.iterrows()]
+
+                # Enhanced cost calculation with bearing considerations
                 mock_route = {'capacity': driver['capacity']}
-                total_cost = calculate_optimized_cost(mock_route, driver_pos, user_positions,
-                                                    user_df.iloc[0]['office_latitude'],
-                                                    user_df.iloc[0]['office_longitude'])
+                cost = calculate_enhanced_cost(mock_route, driver_pos, user_positions,
+                                               user_df.iloc[0]['office_latitude'],
+                                               user_df.iloc[0]['office_longitude'])
 
-                # Apply capacity penalty if needed
+                # Apply overflow penalty if capacity exceeded
                 if users_needed > driver['capacity']:
-                    total_cost += OVERFLOW_PENALTY_KM
+                    cost += OVERFLOW_PENALTY_KM
 
-                driver_candidates.append({
-                    'driver_idx': driver_idx,
-                    'driver': driver,
-                    'cost': total_cost,
-                    'efficiency': route_efficiency,
-                    'priority': driver['priority'],
-                    'capacity_fit': users_needed <= driver['capacity']
-                })
+                # Additional bearing alignment bonus for driver position
+                if len(user_positions) > 0:
+                    # Calculate average user bearing from office
+                    avg_user_bearing = np.mean([
+                        calculate_bearing(user_df.iloc[0]['office_latitude'],
+                                        user_df.iloc[0]['office_longitude'],
+                                        pos[0], pos[1]) for pos in user_positions
+                    ])
 
-            # Sort candidates by route optimality FIRST, then by driver priority
-            driver_candidates.sort(key=lambda x: (
-                not x['capacity_fit'],     # Drivers with sufficient capacity first
-                x['cost'],                 # Then by lowest cost (best route efficiency)
-                x['priority'],             # Then by driver priority (lower = better)
-                -x['efficiency']           # Then by efficiency score (higher = better)
-            ))
+                    # Calculate driver bearing from office
+                    driver_bearing = calculate_bearing(user_df.iloc[0]['office_latitude'],
+                                                     user_df.iloc[0]['office_longitude'],
+                                                     driver_pos[0], driver_pos[1])
 
-            if driver_candidates:
-                best_candidate = driver_candidates[0]
-                best_driver_idx = best_candidate['driver_idx']
-                best_driver = best_candidate['driver']
-                best_cost = best_candidate['cost']
-                best_efficiency = best_candidate['efficiency']
+                    # Bonus for driver aligned in same direction as users
+                    bearing_alignment = bearing_difference(avg_user_bearing, driver_bearing)
+                    if bearing_alignment <= 30:  # Driver in same direction as users
+                        cost *= 0.9  # 10% bonus
+                    elif bearing_alignment <= 60:  # Driver moderately aligned
+                        cost *= 0.95  # 5% bonus
+                    elif bearing_alignment > 120:  # Driver in opposite direction
+                        cost *= 1.2  # 20% penalty
 
-                print(f"       ✅ Selected Driver {best_driver.name}: Priority {best_driver['priority']}, "
-                      f"Cost {best_cost:.2f}, Efficiency {best_efficiency:.2f}")
+                # ENHANCED PRIORITY: Allow cost override if improvement is significant
+                COST_OVERRIDE_THRESHOLD = 5.0  # km - allow lower priority if much closer
 
-                # Check if we should reject this assignment due to poor route quality
-                if best_efficiency < ROUTE_EFFICIENCY_THRESHOLD and len(driver_candidates) > 1:
-                    print(f"       ⚠️ Route efficiency {best_efficiency:.2f} below threshold {ROUTE_EFFICIENCY_THRESHOLD}")
-                    # Try next best driver if available
-                    for alt_candidate in driver_candidates[1:3]:  # Try up to 2 alternatives
-                        if alt_candidate['efficiency'] > best_efficiency * 1.2:  # At least 20% better
-                            print(f"       🔄 Switching to Driver {alt_candidate['driver'].name} for better efficiency")
-                            best_candidate = alt_candidate
-                            best_driver_idx = alt_candidate['driver_idx']
-                            best_driver = alt_candidate['driver']
-                            break
+                # Check if we should override priority for significant cost savings
+                cost_improvement = min_cost - cost if best_driver_idx is not None else 0
+                priority_allows_override = (driver['priority'] == best_priority + 1 and
+                                          cost_improvement > COST_OVERRIDE_THRESHOLD)
 
-                # Create the route
+                if (driver['priority'] < best_priority or
+                    (driver['priority'] == best_priority and cost < min_cost) or
+                    priority_allows_override):
+                    min_cost = cost
+                    best_driver_idx = driver_idx
+                    best_priority = driver['priority']
+
+            # Debug: Print selected driver info
+            if best_driver_idx is not None:
+                best_driver = available_drivers.loc[best_driver_idx]
+                is_assigned_text = "driversAssigned" if best_driver['is_assigned'] else "driversUnassigned"
+                print(f"   🎯 Selected Driver {best_driver['driver_id']} (Priority {best_driver['priority']}, {is_assigned_text}) for {users_needed} users")
+
                 capacity = best_driver['capacity']
-                users_to_assign = sub_users.head(capacity)  # Assign up to capacity
-
-                # Ensure driver data has driver_id
-                driver_data = best_driver.to_dict()
-                # Ensure driver_id is properly set
-                if 'driver_id' not in driver_data and hasattr(best_driver, 'name'):
-                    driver_data['driver_id'] = str(best_driver.name)
+                users_to_assign = sub_users.head(capacity)
 
                 route = create_route_from_users(
-                    driver_data,
-                    users_to_assign.to_dict('records'),
+                    best_driver.to_dict(), users_to_assign.to_dict('records'),
                     user_df.iloc[0]['office_latitude'],
                     user_df.iloc[0]['office_longitude'])
 
-                # Track assigned users
                 for _, user in users_to_assign.iterrows():
                     assigned_user_ids.add(user['user_id'])
 
-                routes.append(route)
+                drivers_and_routes.append(route)
                 used_driver_indices.add(best_driver_idx)
 
-                print(f"       ✅ Route created: {len(users_to_assign)} users assigned")
-
-    print(f"\n🎯 OPTIMAL ASSIGNMENT COMPLETE:")
-    print(f"   Routes created: {len(routes)}")
-    print(f"   Users assigned: {len(assigned_user_ids)}")
-    print(f"   Drivers used: {len(used_driver_indices)}")
-
-    return routes, assigned_user_ids
+    return drivers_and_routes, assigned_user_ids
 
 
 def create_route_from_users(driver, users, office_lat, office_lon):
@@ -1090,442 +884,156 @@ def create_route_from_users(driver, users, office_lat, office_lon):
 
         route['assigned_users'].append(user_data)
 
-    # Calculate route metrics including efficiency score
+    # Calculate route metrics
     if route['assigned_users']:
         lats = [u['lat'] for u in route['assigned_users']]
         lngs = [u['lng'] for u in route['assigned_users']]
         route['centroid'] = [np.mean(lats), np.mean(lngs)]
-        route['utilization'] = len(route['assigned_users']) / route['vehicle_type']
-        route['stops'] = [[u['lat'], u['lng']] for u in route['assigned_users']]
-        route['bearing'] = calculate_bearing(route['centroid'][0], route['centroid'][1], office_lat, office_lon)
-
-        # Calculate and store route efficiency
-        user_positions = [(u['lat'], u['lng']) for u in route['assigned_users']]
-        route['efficiency_score'] = calculate_route_efficiency_score(user_positions, office_lat, office_lon)
+        route['utilization'] = len(
+            route['assigned_users']) / route['vehicle_type']
+        route['stops'] = [[u['lat'], u['lng']]
+                          for u in route['assigned_users']]
+        route['bearing'] = calculate_bearing(route['centroid'][0],
+                                             route['centroid'][1], office_lat,
+                                             office_lon)
     else:
         route['centroid'] = [route['latitude'], route['longitude']]
         route['utilization'] = 0
         route['stops'] = []
         route['bearing'] = 0
-        route['efficiency_score'] = 1.0
 
     return route
 
 
-def optimized_local_search(routes, max_iterations=MAX_SWAP_ITERATIONS):
-            """
-            Enhanced local search that maintains directional coherence
-            Only allows swaps that improve overall route efficiency
-            """
-            print("🔧 Starting efficiency-focused local search...")
+# SIMPLIFIED LOCAL SEARCH
+def simplified_local_search(routes, max_iterations=MAX_SWAP_ITERATIONS):
+    """Simplified but effective local search optimization"""
+    print("🔧 Starting simplified local search optimization...")
 
-            improved = True
-            iterations = 0
+    improved = True
+    iterations = 0
 
-            while improved and iterations < max_iterations:
-                improved = False
-                iterations += 1
+    while improved and iterations < max_iterations:
+        improved = False
+        iterations += 1
 
-                for i, route_a in enumerate(routes):
-                    for j, route_b in enumerate(routes[i + 1:], start=i + 1):
-                        if not route_a['assigned_users'] or not route_b['assigned_users']:
-                            continue
+        for i, route_a in enumerate(routes):
+            for j, route_b in enumerate(routes[i + 1:], start=i + 1):
+                if not route_a['assigned_users'] or not route_b[
+                        'assigned_users']:
+                    continue
 
-                        # Try swapping users between routes
-                        for user_a in route_a['assigned_users'][:]:
-                            for user_b in route_b['assigned_users'][:]:
-                                # Calculate current efficiency scores
-                                current_eff_a = route_a.get('efficiency_score', 0)
-                                current_eff_b = route_b.get('efficiency_score', 0)
-                                current_total_efficiency = current_eff_a + current_eff_b
-
-                                # Simulate swap and calculate new efficiency
-                                new_efficiency = calculate_swap_efficiency_improvement(
-                                    route_a, route_b, user_a, user_b)
-
-                                # OLD CODE APPROACH: Calculate actual distance improvement
-                                current_dist_a = haversine_distance(route_a['centroid'][0], route_a['centroid'][1], 
-                                                                   user_a['lat'], user_a['lng'])
-                                current_dist_b = haversine_distance(route_b['centroid'][0], route_b['centroid'][1], 
-                                                                   user_b['lat'], user_b['lng'])
-
-                                swap_dist_a = haversine_distance(route_a['centroid'][0], route_a['centroid'][1], 
-                                                                user_b['lat'], user_b['lng'])
-                                swap_dist_b = haversine_distance(route_b['centroid'][0], route_b['centroid'][1], 
-                                                                user_a['lat'], user_a['lng'])
-
-                                distance_improvement = (current_dist_a + current_dist_b) - (swap_dist_a + swap_dist_b)
-
-                                # Swap if improves distance by at least 200m (like old code) AND efficiency is better
-                                if distance_improvement >= 0.2 and new_efficiency > current_total_efficiency * 0.95:
-                                    # Verify swap doesn't violate directional constraints
-                                    if validate_swap_directional_coherence(route_a, route_b, user_a, user_b):
-                                        # Perform swap
-                                        route_a['assigned_users'].remove(user_a)
-                                        route_b['assigned_users'].remove(user_b)
-                                        route_a['assigned_users'].append(user_b)
-                                        route_b['assigned_users'].append(user_a)
-
-                                        # Update route metrics
-                                        update_route_metrics([route_a, route_b])
-                                        improved = True
-                                        print(f"  🔄 Beneficial swap performed (efficiency: {current_total_efficiency:.2f} → {new_efficiency:.2f})")
-                                        break
-                            if improved:
-                                break
-                        if improved:
+                # Try swapping users between routes
+                for user_a in route_a['assigned_users'][:]:
+                    for user_b in route_b['assigned_users'][:]:
+                        if calculate_swap_improvement(
+                                route_a, route_b, user_a,
+                                user_b) > SWAP_IMPROVEMENT_THRESHOLD:
+                            # Perform swap
+                            route_a['assigned_users'].remove(user_a)
+                            route_b['assigned_users'].remove(user_b)
+                            route_a['assigned_users'].append(user_b)
+                            route_b['assigned_users'].append(user_a)
+                            improved = True
+                            update_route_metrics([route_a, route_b])
                             break
                     if improved:
                         break
-
                 if improved:
-                    print(f"  🔄 Improvement found in iteration {iterations}")
+                    break
+            if improved:
+                break
 
-            print(f"✅ Efficiency-focused local search complete after {iterations} iterations")
-            return routes
+        if improved:
+            print(f"  🔄 Improvement found in iteration {iterations}")
 
-
-def calculate_swap_efficiency_improvement(route_a, route_b, user_a, user_b):
-            """Calculate the efficiency improvement from swapping two users"""
-            # Get current user positions
-            users_a = [u for u in route_a['assigned_users'] if u != user_a] + [user_b]
-            users_b = [u for u in route_b['assigned_users'] if u != user_b] + [user_a]
-
-            positions_a = [(u['lat'], u['lng']) for u in users_a]
-            positions_b = [(u['lat'], u['lng']) for u in users_b]
-
-            # Calculate efficiency scores for swapped routes
-            eff_a = calculate_route_efficiency_score(positions_a, OFFICE_LAT, OFFICE_LON)
-            eff_b = calculate_route_efficiency_score(positions_b, OFFICE_LAT, OFFICE_LON)
-
-            return eff_a + eff_b
+    print(f"✅ Local search complete after {iterations} iterations")
+    return routes
 
 
-def validate_swap_directional_coherence(route_a, route_b, user_a, user_b):
-            """Validate that a swap doesn't violate directional coherence"""
-            # Check if swap maintains directional coherence in both routes
-            users_a_after = [u for u in route_a['assigned_users'] if u != user_a] + [user_b]
-            users_b_after = [u for u in route_b['assigned_users'] if u != user_b] + [user_a]
+def calculate_swap_improvement(route_a, route_b, user_a, user_b):
+    """Calculate improvement from swapping two users"""
+    centroid_a = route_a.get('centroid',
+                             [route_a['latitude'], route_a['longitude']])
+    centroid_b = route_b.get('centroid',
+                             [route_b['latitude'], route_b['longitude']])
 
-            # Check directional spread in route A after swap
-            if len(users_a_after) > 1:
-                bearings_a = [calculate_bearing(OFFICE_LAT, OFFICE_LON, u['lat'], u['lng']) for u in users_a_after]
-                max_spread_a = max(bearing_difference(bearings_a[i], bearings_a[j])
-                                  for i in range(len(bearings_a))
-                                  for j in range(i + 1, len(bearings_a)))
-                if max_spread_a > MAX_BEARING_DIFFERENCE:
-                    return False
+    current_dist_a = haversine_distance(centroid_a[0], centroid_a[1],
+                                        user_a['lat'], user_a['lng'])
+    current_dist_b = haversine_distance(centroid_b[0], centroid_b[1],
+                                        user_b['lat'], user_b['lng'])
 
-            # Check directional spread in route B after swap
-            if len(users_b_after) > 1:
-                bearings_b = [calculate_bearing(OFFICE_LAT, OFFICE_LON, u['lat'], u['lng']) for u in users_b_after]
-                max_spread_b = max(bearing_difference(bearings_b[i], bearings_b[j])
-                                  for i in range(len(bearings_b))
-                                  for j in range(i + 1, len(bearings_b)))
-                if max_spread_b > MAX_BEARING_DIFFERENCE:
-                    return False
+    swap_dist_a = haversine_distance(centroid_a[0], centroid_a[1],
+                                     user_b['lat'], user_b['lng'])
+    swap_dist_b = haversine_distance(centroid_b[0], centroid_b[1],
+                                     user_a['lat'], user_a['lng'])
 
-            return True
+    return (current_dist_a + current_dist_b) - (swap_dist_a + swap_dist_b)
 
 
 def update_route_metrics(routes):
-            """Update route metrics after modifications"""
-            for route in routes:
-                if route['assigned_users']:
-                    lats = [u['lat'] for u in route['assigned_users']]
-                    lngs = [u['lng'] for u in route['assigned_users']]
-                    route['centroid'] = [np.mean(lats), np.mean(lngs)]
-                    route['utilization'] = len(route['assigned_users']) / route['vehicle_type']
-                    route['stops'] = [[u['lat'], u['lng']] for u in route['assigned_users']]
-                    route['bearing'] = calculate_bearing(route['centroid'][0], route['centroid'][1], OFFICE_LAT, OFFICE_LON)
-
-                    # Update efficiency score
-                    user_positions = [(u['lat'], u['lng']) for u in route['assigned_users']]
-                    route['efficiency_score'] = calculate_route_efficiency_score(user_positions, OFFICE_LAT, OFFICE_LON)
-                else:
-                    route['centroid'] = [route['latitude'], route['longitude']]
-                    route['utilization'] = 0
-                    route['stops'] = []
-                    route['bearing'] = 0
-                    route['efficiency_score'] = 1.0
+    """Update route metrics after modifications"""
+    for route in routes:
+        if route['assigned_users']:
+            lats = [u['lat'] for u in route['assigned_users']]
+            lngs = [u['lng'] for u in route['assigned_users']]
+            route['centroid'] = [np.mean(lats), np.mean(lngs)]
+            route['utilization'] = len(
+                route['assigned_users']) / route['vehicle_type']
+            route['stops'] = [[u['lat'], u['lng']]
+                              for u in route['assigned_users']]
+            route['bearing'] = calculate_bearing(route['centroid'][0], route['centroid'][1],
+                                               OFFICE_LAT, OFFICE_LON)
+        else:
+            route['centroid'] = [route['latitude'], route['longitude']]
+            route['utilization'] = 0
+            route['stops'] = []
+            route['bearing'] = 0
 
 
-def strict_fill_routes(routes, user_df, assigned_user_ids):
-            """
-            STRICT route filling that maintains directional coherence
-            Only adds users that improve or maintain route efficiency
-            """
-            unassigned_users = user_df[~user_df['user_id'].isin(assigned_user_ids)].copy()
+# Keep the original utility functions
+def fill_underutilized_routes(drivers_and_routes, user_df, assigned_user_ids):
+    """Fill underutilized routes with nearby unassigned users using cost-based assignment"""
+    unassigned_users = user_df[~user_df['user_id'].isin(assigned_user_ids)].copy()
 
-            if unassigned_users.empty:
-                return assigned_user_ids
+    for route in drivers_and_routes:
+        capacity = route['vehicle_type']
 
-            print(f"🔍 Strict filling: {len(unassigned_users)} unassigned users")
+        current_size = len(route['assigned_users'])
 
-            for route in routes:
-                capacity = route['vehicle_type']
-                current_size = len(route['assigned_users'])
-
-                if current_size < capacity and not unassigned_users.empty:
-                    if route['assigned_users']:
-                        centroid_lat = np.mean([u['lat'] for u in route['assigned_users']])
-                        centroid_lng = np.mean([u['lng'] for u in route['assigned_users']])
-                        current_efficiency = route.get('efficiency_score', 0)
-                    else:
-                        centroid_lat, centroid_lng = route['latitude'], route['longitude']
-                        current_efficiency = 1.0
-
-                    # Find compatible users within distance who improve efficiency
-                    compatible_users = []
-
-                    for _, user in unassigned_users.iterrows():
-                        dist = haversine_distance(centroid_lat, centroid_lng, user['latitude'], user['longitude'])
-
-                        if dist <= MAX_FILL_DISTANCE_KM:
-                            # Test if adding this user maintains directional coherence
-                            test_positions = [(u['lat'], u['lng']) for u in route['assigned_users']]
-                            test_positions.append((user['latitude'], user['longitude']))
-
-                            # Check directional coherence
-                            if len(test_positions) > 1:
-                                test_bearings = [calculate_bearing(OFFICE_LAT, OFFICE_LON, pos[0], pos[1]) for pos in test_positions]
-                                max_spread = max(bearing_difference(test_bearings[i], test_bearings[j])
-                                               for i in range(len(test_bearings))
-                                               for j in range(i + 1, len(test_bearings)))
-
-                                if max_spread > MAX_BEARING_DIFFERENCE:
-                                    continue  # Skip users that violate directional coherence
-
-                            # Calculate efficiency with this user added
-                            new_efficiency = calculate_route_efficiency_score(test_positions, OFFICE_LAT, OFFICE_LON)
-
-                            # Only add if efficiency is maintained or improved
-                            if new_efficiency >= current_efficiency * 0.85:  # Allow 15% efficiency drop for better utilization
-                                compatible_users.append((user, dist, new_efficiency))
-
-                    # Sort by efficiency improvement, then by distance
-                    compatible_users.sort(key=lambda x: (-x[2], x[1]))  # Best efficiency first, then closest
-
-                    slots_available = capacity - current_size
-                    for user, dist, new_efficiency in compatible_users[:slots_available]:
-                        user_data = {
-                            'user_id': str(user['user_id']),
-                            'lat': float(user['latitude']),
-                            'lng': float(user['longitude']),
-                            'office_distance': float(user.get('office_distance', 0))
-                        }
-
-                        if pd.notna(user.get('first_name')):
-                            user_data['first_name'] = str(user['first_name'])
-                        if pd.notna(user.get('email')):
-                            user_data['email'] = str(user['email'])
-
-                        route['assigned_users'].append(user_data)
-                        assigned_user_ids.add(user['user_id'])
-                        unassigned_users = unassigned_users[unassigned_users['user_id'] != user['user_id']]
-
-                        # Update route efficiency
-                        user_positions = [(u['lat'], u['lng']) for u in route['assigned_users']]
-                        route['efficiency_score'] = calculate_route_efficiency_score(user_positions, OFFICE_LAT, OFFICE_LON)
-
-                        print(f"   ✅ Added user {user['user_id']} to route (efficiency: {route['efficiency_score']:.2f})")
-
-            return assigned_user_ids
-
-
-def reassign_underutilized_routes(routes):
-            """
-            Reassign users from underutilized routes to nearby better routes (from old code)
-            """
-            routes_to_remove = []
-            reassigned_count = 0
-
-            for i, source_route in enumerate(routes):
-                if source_route.get('utilization', 0) >= MIN_UTIL_THRESHOLD:
-                    continue
-
-                source_bearing = source_route.get('bearing', 0)
-                remaining_users = []
-
-                for user in source_route['assigned_users']:
-                    best_target = None
-                    best_cost = float('inf')
-
-                    for j, target_route in enumerate(routes):
-                        if (j == i or 
-                            len(target_route['assigned_users']) >= target_route['vehicle_type']):
-                            continue
-
-                        centroid = target_route.get('centroid', [target_route['latitude'], target_route['longitude']])
-                        distance = haversine_distance(centroid[0], centroid[1], user['lat'], user['lng'])
-                        target_bearing = target_route.get('bearing', 0)
-                        bearing_diff = bearing_difference(source_bearing, target_bearing)
-
-                        # OLD CODE LOGIC: Use distance and bearing for reassignment
-                        if distance <= MERGE_DISTANCE_KM and bearing_diff <= 45:
-                            cost = distance + (bearing_diff / 90.0)  # Normalize bearing difference
-                            if cost < best_cost:
-                                best_cost = cost
-                                best_target = target_route
-
-                    if best_target:
-                        best_target['assigned_users'].append(user)
-                        reassigned_count += 1
-                    else:
-                        remaining_users.append(user)
-
-                if not remaining_users:
-                    routes_to_remove.append(i)
-                else:
-                    source_route['assigned_users'] = remaining_users
-
-            # Remove empty routes
-            for i in sorted(routes_to_remove, reverse=True):
-                routes.pop(i)
-
-            print(f"📈 Reassigned {reassigned_count} users from underutilized routes")
-            return routes
-
-
-def handle_remaining_users_optimally(user_df, routes, assigned_user_ids, driver_df):
-            """Handle remaining users while maintaining optimal route quality"""
-            unassigned_users = user_df[~user_df['user_id'].isin(assigned_user_ids)].copy()
-
-            # Get assigned driver IDs from routes
-            assigned_driver_ids = {route['driver_id'] for route in routes}
-
-            # Filter available drivers - check if driver_id is column or index
-            if 'driver_id' in driver_df.columns:
-                available_drivers = driver_df[~driver_df['driver_id'].isin(assigned_driver_ids)].copy()
+        if current_size < capacity and not unassigned_users.empty:
+            if route['assigned_users']:
+                centroid_lat = np.mean([u['lat'] for u in route['assigned_users']])
+                centroid_lng = np.mean([u['lng'] for u in route['assigned_users']])
             else:
-                # If driver_id is the index, use index-based filtering
-                available_drivers = driver_df[~driver_df.index.astype(str).isin(assigned_driver_ids)].copy()
+                centroid_lat, centroid_lng = route['latitude'], route['longitude']
 
-            if unassigned_users.empty:
-                return []
+            # Cost-based assignment instead of just distance
+            user_costs = []
+            for _, user in unassigned_users.iterrows():
+                dist = haversine_distance(centroid_lat, centroid_lng,
+                                          user['latitude'], user['longitude'])
+                if dist <= MAX_FILL_DISTANCE_KM:
+                    # Calculate enhanced cost including bearing compatibility
+                    user_positions = [(u['lat'], u['lng']) for u in route['assigned_users']]
+                    user_positions.append((user['latitude'], user['longitude']))
 
-            print(f"🎯 Handling {len(unassigned_users)} remaining users optimally")
+                    mock_route = {'capacity': capacity}
+                    cost = calculate_enhanced_cost(mock_route, (route['latitude'], route['longitude']),
+                                                   user_positions, user_df.iloc[0]['office_latitude'],
+                                                   user_df.iloc[0]['office_longitude'])
 
-            # First try to fit into existing routes (only if it maintains efficiency)
-            for _, user in unassigned_users.copy().iterrows():
-                best_route = None
-                best_efficiency_loss = float('inf')
+                    # Deterministic tie-breaking using user_id
+                    tie_breaker = int(str(user['user_id'])[-4:]) / 10000.0  # Use last 4 digits of user_id
+                    final_cost = cost + tie_breaker
 
-                for route in routes:
-                    if len(route['assigned_users']) < route['vehicle_type']:
-                        # Test adding this user
-                        test_positions = [(u['lat'], u['lng']) for u in route['assigned_users']]
-                        test_positions.append((user['latitude'], user['longitude']))
+                    user_costs.append((user, final_cost, dist))
 
-                        # Check directional coherence
-                        if len(test_positions) > 1:
-                            test_bearings = [calculate_bearing(OFFICE_LAT, OFFICE_LON, u['lat'], u['lng']) for u in test_positions]
-                            max_spread = max(bearing_difference(test_bearings[i], test_bearings[j])
-                                           for i in range(len(test_bearings))
-                                           for j in range(i + 1, len(test_bearings)))
+            # Sort by cost first, then distance for deterministic assignment
+            user_costs.sort(key=lambda x: (x[1], x[2], x[0]['user_id']))
+            slots_available = capacity - current_size
 
-                            if max_spread > MAX_BEARING_DIFFERENCE:
-                                continue  # Skip routes that would violate directional coherence
-
-                        current_efficiency = route.get('efficiency_score', 0)
-                        new_efficiency = calculate_route_efficiency_score(test_positions, OFFICE_LAT, OFFICE_LON)
-                        efficiency_loss = current_efficiency - new_efficiency
-
-                        # Check distance compatibility
-                        if route['assigned_users']:
-                            centroid_lat = np.mean([u['lat'] for u in route['assigned_users']])
-                            centroid_lng = np.mean([u['lng'] for u in route['assigned_users']])
-                            dist = haversine_distance(centroid_lat, centroid_lng, user['latitude'], user['longitude'])
-
-                            if dist <= MAX_FILL_DISTANCE_KM and efficiency_loss < best_efficiency_loss and efficiency_loss <= 0.1:
-                                best_efficiency_loss = efficiency_loss
-                                best_route = route
-
-                if best_route:
-                    user_data = {
-                        'user_id': str(user['user_id']),
-                        'lat': float(user['latitude']),
-                        'lng': float(user['longitude']),
-                        'office_distance': float(user.get('office_distance', 0))
-                    }
-
-                    if pd.notna(user.get('first_name')):
-                        user_data['first_name'] = str(user['first_name'])
-                    if pd.notna(user.get('email')):
-                        user_data['email'] = str(user['email'])
-
-                    best_route['assigned_users'].append(user_data)
-                    assigned_user_ids.add(user['user_id'])
-                    unassigned_users = unassigned_users[unassigned_users['user_id'] != user['user_id']]
-
-                    # Update route efficiency
-                    user_positions = [(u['lat'], u['lng']) for u in best_route['assigned_users']]
-                    best_route['efficiency_score'] = calculate_route_efficiency_score(user_positions, OFFICE_LAT, OFFICE_LON)
-
-            # Create new efficient routes for remaining isolated users
-            remaining_unassigned = user_df[~user_df['user_id'].isin(assigned_user_ids)].copy()
-
-            if not remaining_unassigned.empty and not available_drivers.empty:
-                # Re-cluster remaining users directionally
-                if len(remaining_unassigned) > 1:
-                    remaining_bearings = [calculate_bearing(OFFICE_LAT, OFFICE_LON, row['latitude'], row['longitude'])
-                                        for _, row in remaining_unassigned.iterrows()]
-
-                    # Create small directional clusters
-                    n_clusters = min(len(available_drivers), max(1, len(remaining_unassigned) // 2))
-
-                    if n_clusters > 1:
-                        bearing_vectors = np.column_stack([
-                            np.cos(np.radians(remaining_bearings)),
-                            np.sin(np.radians(remaining_bearings))
-                        ])
-                        kmeans = KMeans(n_clusters=n_clusters, random_state=42)
-                        remaining_unassigned['final_cluster'] = kmeans.fit_predict(bearing_vectors)
-                    else:
-                        remaining_unassigned['final_cluster'] = 0
-                else:
-                    remaining_unassigned['final_cluster'] = 0
-
-                # Convert available drivers to list of dictionaries
-                available_drivers_list = []
-                for idx, driver in available_drivers.iterrows():
-                    driver_dict = driver.to_dict()
-                    # Ensure driver_id is in the dictionary
-                    if 'driver_id' not in driver_dict:
-                        driver_dict['driver_id'] = str(idx)
-                    available_drivers_list.append(driver_dict)
-
-                for cluster_id, cluster_users in remaining_unassigned.groupby('final_cluster'):
-                    if not available_drivers_list:
-                        break
-
-                    # Find the best driver for this cluster
-                    cluster_positions = [(row['latitude'], row['longitude']) for _, row in cluster_users.iterrows()]
-                    cluster_centroid = np.mean(cluster_positions, axis=0)
-
-                    best_driver = min(available_drivers_list,
-                                    key=lambda d: haversine_distance(cluster_centroid[0], cluster_centroid[1],
-                                                                   d['latitude'], d['longitude']))
-
-                    capacity = best_driver['capacity']
-                    users_to_assign = cluster_users.head(capacity)
-
-                    route = create_route_from_users(
-                        best_driver, users_to_assign.to_dict('records'),
-                        OFFICE_LAT,
-                        OFFICE_LON)
-
-                    for _, user in users_to_assign.iterrows():
-                        assigned_user_ids.add(user['user_id'])
-
-                    routes.append(route)
-                    available_drivers_list.remove(best_driver)
-
-            # Return final unassigned users
-            final_unassigned = user_df[~user_df['user_id'].isin(assigned_user_ids)].copy()
-            unassigned_list = []
-
-            for _, user in final_unassigned.iterrows():
+            for user, cost, dist in user_costs[:slots_available]:
                 user_data = {
                     'user_id': str(user['user_id']),
                     'lat': float(user['latitude']),
@@ -1538,491 +1046,864 @@ def handle_remaining_users_optimally(user_df, routes, assigned_user_ids, driver_
                 if pd.notna(user.get('email')):
                     user_data['email'] = str(user['email'])
 
-                unassigned_list.append(user_data)
+                route['assigned_users'].append(user_data)
+                assigned_user_ids.add(user['user_id'])
+                # Remove user from unassigned_users to avoid re-assignment
+                unassigned_users = unassigned_users[unassigned_users['user_id'] != user['user_id']]
 
-            return unassigned_list
+    return assigned_user_ids
 
 
-def smart_route_merging_with_path_optimization(routes):
-            """
-            SMART route merging that considers route paths and bearing corridors
-            This addresses the issue where users could be merged based on route efficiency rather than just distance
-            """
-            print(f"🌍 Starting SMART route merging with path optimization...")
+def calculate_route_efficiency_vector(route, office_lat, office_lon):
+    """Calculate route efficiency using vector analysis"""
+    if not route['assigned_users'] or len(route['assigned_users']) < 2:
+        return 1.0  # Perfect efficiency for single user
 
-            # Load config values
-            global_merge_distance = _config.get('global_merge_distance_km', 8.0)
-            bearing_corridor_threshold = 75  # Expanded to 75 degrees for better same-direction merging
-            route_path_efficiency_threshold = 0.6  # Slightly relaxed for better utilization
+    # Convert all user positions to vectors from office
+    user_vectors = []
+    for user in route['assigned_users']:
+        bearing_rad = np.radians(calculate_bearing(office_lat, office_lon, user['lat'], user['lng']))
+        vector = np.array([np.cos(bearing_rad), np.sin(bearing_rad)])
+        user_vectors.append(vector)
 
-            merged_routes = []
-            routes_to_merge = routes.copy()
+    # Calculate coherence (how well aligned the users are)
+    mean_vector = np.mean(user_vectors, axis=0)
+    coherence = np.linalg.norm(mean_vector)  # 0 = scattered, 1 = perfectly aligned
 
-            # Sort routes by utilization (prioritize low utilization routes for merging)
-            routes_to_merge.sort(key=lambda r: r['utilization'])
+    return coherence
 
-            while routes_to_merge:
-                current_route = routes_to_merge.pop(0)
+def optimize_route_sequence(route, office_lat, office_lon):
+    """Optimize the sequence of user pickups using TSP-like approach"""
+    if not route['assigned_users'] or len(route['assigned_users']) <= 2:
+        return route  # No optimization needed
 
-                print(f"   🔍 Analyzing route {current_route['driver_id']} (utilization: {current_route['utilization']:.1%})")
+    users = route['assigned_users']
+    driver_pos = (route['latitude'], route['longitude'])
 
-                # Find merge candidates using multiple criteria
-                merge_candidates = []
+    # Calculate distances between all points (driver + users + office)
+    all_points = [driver_pos]
+    all_points.extend([(u['lat'], u['lng']) for u in users])
+    all_points.append((office_lat, office_lon))
 
-                for i, other_route in enumerate(routes_to_merge):
-                    combined_users = len(current_route['assigned_users']) + len(other_route['assigned_users'])
-                    max_capacity = max(current_route['vehicle_type'], other_route['vehicle_type'])
+    # Simple nearest neighbor for pickup sequence optimization
+    unvisited = list(range(1, len(all_points) - 1))  # Exclude driver start and office end
+    current_pos = 0  # Start from driver
+    pickup_sequence = []
 
-                    if combined_users <= max_capacity:
-                        # Get route bearings and positions
-                        current_bearing = current_route.get('bearing', 0)
-                        other_bearing = other_route.get('bearing', 0)
-                        bearing_diff = bearing_difference(current_bearing, other_bearing)
+    while unvisited:
+        nearest_idx = min(unvisited,
+                         key=lambda idx: haversine_distance(
+                             all_points[current_pos][0], all_points[current_pos][1],
+                             all_points[idx][0], all_points[idx][1]
+                         ))
+        pickup_sequence.append(nearest_idx - 1)  # Convert to user index
+        unvisited.remove(nearest_idx)
+        current_pos = nearest_idx
 
-                        # Check if routes are in similar bearing corridors
-                        in_bearing_corridor = bearing_diff <= bearing_corridor_threshold
+    # Reorder users according to optimized sequence
+    optimized_users = [users[i] for i in pickup_sequence]
+    route['assigned_users'] = optimized_users
 
-                        # Calculate geographical compatibility
-                        current_centroid = current_route['centroid']
-                        other_centroid = other_route['centroid']
-                        centroid_distance = haversine_distance(current_centroid[0], current_centroid[1],
-                                                             other_centroid[0], other_centroid[1])
+    return route
 
-                        # Add bearing-based merging logic from old code
-                        bearing_compatibility = bearing_diff <= 45  # Similar to old code's 45-degree threshold
 
-                        # Calculate route path efficiency if merged
-                        all_users = current_route['assigned_users'] + other_route['assigned_users']
-                        user_positions = [(u['lat'], u['lng']) for u in all_users]
-                        merged_efficiency = calculate_route_efficiency_score(user_positions, OFFICE_LAT, OFFICE_LON)
+def merge_underutilized_routes(drivers_and_routes):
+    """Merge underutilized routes with proper duplicate prevention"""
+    if not drivers_and_routes or len(drivers_and_routes) <= 1:
+        return drivers_and_routes
 
-                        # Check directional coherence of merged route
-                        user_bearings = [calculate_bearing(OFFICE_LAT, OFFICE_LON, u['lat'], u['lng']) for u in all_users]
-                        max_bearing_spread = 0
-                        if len(user_bearings) > 1:
-                            max_bearing_spread = max(bearing_difference(user_bearings[i], user_bearings[j])
-                                                   for i in range(len(user_bearings))
-                                                   for j in range(i + 1, len(user_bearings)))
+    # Use route IDs instead of indices to prevent index errors
+    for i, route in enumerate(drivers_and_routes):
+        route['_temp_id'] = i
 
-                        # NEW: Route path optimization logic
-                        # Consider merging if:
-                        # 1. Routes are in similar bearing corridors AND geographically compatible, OR
-                        # 2. Merged route has good efficiency even if not perfectly aligned, OR  
-                        # 3. One route has very low utilization and merging improves overall efficiency
+    merged_routes = []
+    processed_route_ids = set()
 
-                        merge_score = 0
-                        merge_reasons = []
+    for route_a in drivers_and_routes:
+        route_a_id = route_a['_temp_id']
+        if route_a_id in processed_route_ids:
+            continue
 
-                        # Criterion 1: Similar bearing corridors + geographical proximity
-                        if in_bearing_corridor and centroid_distance <= global_merge_distance:
-                            merge_score += 3
-                            merge_reasons.append(f"bearing_corridor({bearing_diff:.1f}°)")
+        # Check if route_a is underutilized
+        is_route_a_underutilized = route_a.get('utilization', 0) < MIN_UTIL_THRESHOLD
 
-                        # Criterion 2: High efficiency even with wider spread (path optimization)
-                        if merged_efficiency >= route_path_efficiency_threshold and max_bearing_spread <= bearing_corridor_threshold:
-                            merge_score += 2
-                            merge_reasons.append(f"path_efficiency({merged_efficiency:.2f})")
+        if not is_route_a_underutilized:
+            merged_routes.append(route_a)
+            processed_route_ids.add(route_a_id)
+            continue
 
-                        # Criterion 3: Low utilization improvement with expanded directional tolerance
-                        min_utilization = min(current_route['utilization'], other_route['utilization'])
-                        if min_utilization < 0.5 and merged_efficiency >= 0.5 and max_bearing_spread <= bearing_corridor_threshold:
-                            merge_score += 2
-                            merge_reasons.append(f"low_util_improvement({min_utilization:.1%})")
+        merged = False
+        centroid_a = route_a.get('centroid', [route_a['latitude'], route_a['longitude']])
 
-                        # OLD CODE CRITERION: Smart distance + bearing combination
-                        if centroid_distance <= MERGE_DISTANCE_KM and bearing_compatibility:
-                            merge_score += 2
-                            merge_reasons.append(f"distance_bearing({centroid_distance:.1f}km,{bearing_diff:.1f}°)")
+        for route_b in drivers_and_routes:
+            route_b_id = route_b['_temp_id']
 
-                        # Criterion 4: Same-direction optimization (new criterion for 75-degree tolerance)
-                        if max_bearing_spread <= bearing_corridor_threshold and merged_efficiency >= 0.5:
-                            merge_score += 2
-                            merge_reasons.append(f"same_direction({max_bearing_spread:.1f}°)")
+            # Skip self, already processed, or lower ID (to prevent duplicate processing)
+            if route_b_id <= route_a_id or route_b_id in processed_route_ids:
+                continue
 
-                        # Criterion 5: Smart distance consideration (relaxed for good paths)
-                        if centroid_distance <= global_merge_distance * 1.5 and merged_efficiency >= 0.7:
-                            merge_score += 1
-                            merge_reasons.append(f"extended_range({centroid_distance:.1f}km)")
+            centroid_b = route_b.get('centroid', [route_b['latitude'], route_b['longitude']])
+            dist = haversine_distance(centroid_a[0], centroid_a[1], centroid_b[0], centroid_b[1])
 
-                        # Only consider routes with sufficient merge score and within expanded bearing tolerance
-                        if merge_score >= 2 and max_bearing_spread <= bearing_corridor_threshold:
-                            merge_candidates.append({
-                                'index': i,
-                                'route': other_route,
-                                'score': merge_score,
-                                'distance': centroid_distance,
-                                'efficiency': merged_efficiency,
-                                'bearing_spread': max_bearing_spread,
-                                'reasons': merge_reasons
-                            })
+            total_users = len(route_a['assigned_users']) + len(route_b['assigned_users'])
+            max_capacity = max(route_a['vehicle_type'], route_b['vehicle_type'])
 
-                if merge_candidates:
-                    # Sort by merge score (descending), then by efficiency (descending), then by distance (ascending)
-                    merge_candidates.sort(key=lambda x: (-x['score'], -x['efficiency'], x['distance']))
-                    best_candidate = merge_candidates[0]
+            # Enhanced bearing compatibility check
+            bearing_compatible = check_merge_bearing_compatibility(
+                route_a['assigned_users'], route_b['assigned_users']
+            )
 
-                    merge_route = best_candidate['route']
-                    merge_idx = best_candidate['index']
-
-                    print(f"   ✅ SMART MERGE: Route {current_route.get('driver_id', 'Unknown')} + {merge_route.get('driver_id', 'Unknown')}")
-                    print(f"      Reasons: {', '.join(best_candidate['reasons'])}")
-                    print(f"      Efficiency: {best_candidate['efficiency']:.3f}, Spread: {best_candidate['bearing_spread']:.1f}°")
-
-                    # Use the higher capacity vehicle for the merged route
-                    if current_route['vehicle_type'] >= merge_route['vehicle_type']:
-                        primary_route = current_route
-                        secondary_route = merge_route
-                    else:
-                        primary_route = merge_route
-                        secondary_route = current_route
-
-                    # Merge users
-                    primary_route['assigned_users'].extend(secondary_route['assigned_users'])
-
-                    # Update route metrics
-                    if primary_route['assigned_users']:
-                        lats = [u['lat'] for u in primary_route['assigned_users']]
-                        lngs = [u['lng'] for u in primary_route['assigned_users']]
-                        primary_route['centroid'] = [np.mean(lats), np.mean(lngs)]
-                        primary_route['utilization'] = len(primary_route['assigned_users']) / primary_route['vehicle_type']
-                        primary_route['stops'] = [[u['lat'], u['lng']] for u in primary_route['assigned_users']]
-                        primary_route['bearing'] = calculate_bearing(primary_route['centroid'][0], 
-                                                                   primary_route['centroid'][1], OFFICE_LAT, OFFICE_LON)
-
-                        # Update efficiency score
-                        user_positions = [(u['lat'], u['lng']) for u in primary_route['assigned_users']]
-                        primary_route['efficiency_score'] = calculate_route_efficiency_score(user_positions, OFFICE_LAT, OFFICE_LON)
-
-                        # Update bearing spread
-                        user_bearings = [calculate_bearing(OFFICE_LAT, OFFICE_LON, u['lat'], u['lng']) for u in primary_route['assigned_users']]
-                        if len(user_bearings) > 1:
-                            primary_route['bearing_spread'] = max(bearing_difference(user_bearings[i], user_bearings[j])
-                                                                 for i in range(len(user_bearings))
-                                                                 for j in range(i + 1, len(user_bearings)))
-                            primary_route['directional_coherence'] = primary_route['bearing_spread'] <= MAX_BEARING_DIFFERENCE
-                        else:
-                            primary_route['bearing_spread'] = 0
-                            primary_route['directional_coherence'] = True
-
-                    print(f"      Result: {len(primary_route['assigned_users'])} users, {primary_route['utilization']:.1%} utilization")
-
-                    # Remove the merged route
-                    routes_to_merge.pop(merge_idx)
-                    merged_routes.append(primary_route)
+            if dist <= MERGE_DISTANCE_KM and total_users <= max_capacity and bearing_compatible:
+                # Choose the route with higher capacity as the target
+                if route_b['vehicle_type'] >= route_a['vehicle_type']:
+                    target_route, source_route = route_b, route_a
+                    target_id, source_id = route_b_id, route_a_id
                 else:
-                    merged_routes.append(current_route)
+                    target_route, source_route = route_a, route_b
+                    target_id, source_id = route_a_id, route_b_id
 
-            print(f"🌍 SMART merging complete: {len(routes)} → {len(merged_routes)} routes")
-            return merged_routes
+                # Merge source into target
+                target_route['assigned_users'].extend(source_route['assigned_users'])
+                target_route = update_route_metrics_single(target_route)
+
+                # Mark both routes as processed
+                processed_route_ids.add(target_id)
+                processed_route_ids.add(source_id)
+
+                merged_routes.append(target_route)
+                merged = True
+                break
+
+        # If route_a wasn't merged, keep it
+        if not merged:
+            merged_routes.append(route_a)
+            processed_route_ids.add(route_a_id)
+
+    # Clean up temporary IDs
+    for route in merged_routes:
+        if '_temp_id' in route:
+            del route['_temp_id']
+
+    return merged_routes
 
 
-def finalize_routes_with_efficiency(routes, office_lat, office_lon):
-            """Finalize routes with efficiency scores and validation"""
-            unique_routes = []
-            driver_ids_seen = set()
+def check_merge_bearing_compatibility(users_a, users_b):
+    """Check if two user groups are bearing-compatible for merging"""
+    if not users_a or not users_b:
+        return True
 
-            for route in routes:
-                driver_id = route['driver_id']
-                if driver_id in driver_ids_seen:
-                    print(f"⚠️ WARNING: Duplicate driver {driver_id} detected and removed!")
+    all_users = users_a + users_b
+    if len(all_users) <= 1:
+        return True
+
+    # Calculate bearings from office to all users
+    bearings = []
+    for user in all_users:
+        bearing = calculate_bearing(OFFICE_LAT, OFFICE_LON, user['lat'], user['lng'])
+        bearings.append(bearing)
+
+    # Check maximum bearing difference
+    max_bearing_diff = 0
+    for i in range(len(bearings)):
+        for j in range(i + 1, len(bearings)):
+            diff = bearing_difference(bearings[i], bearings[j])
+            max_bearing_diff = max(max_bearing_diff, diff)
+
+    return max_bearing_diff <= MAX_BEARING_DIFFERENCE * 1.5
+
+
+def update_route_metrics_single(route):
+    """Update metrics for a single route"""
+    if route['assigned_users']:
+        lats = [u['lat'] for u in route['assigned_users']]
+        lngs = [u['lng'] for u in route['assigned_users']]
+        route['centroid'] = [np.mean(lats), np.mean(lngs)]
+        route['utilization'] = len(route['assigned_users']) / route['vehicle_type']
+        route['stops'] = [[u['lat'], u['lng']] for u in route['assigned_users']]
+        route['bearing'] = calculate_bearing(route['centroid'][0], route['centroid'][1],
+                                           OFFICE_LAT, OFFICE_LON)
+    else:
+        route['centroid'] = [route['latitude'], route['longitude']]
+        route['utilization'] = 0
+        route['stops'] = []
+        route['bearing'] = 0
+    return route
+
+
+def handle_remaining_users(user_df, drivers_and_routes, assigned_user_ids, driver_df):
+    """Handle remaining unassigned users with isolated user support"""
+    unassigned_users = user_df[~user_df['user_id'].isin(assigned_user_ids)].copy()
+    available_drivers = driver_df[~driver_df['driver_id'].isin(
+        [route['driver_id'] for route in drivers_and_routes])].copy()
+
+    if unassigned_users.empty:
+        return []
+
+    isolated_users = []  # Track users who can't fit into existing routes
+
+    # Try to fit into existing routes first
+    for _, user in unassigned_users.iterrows():
+        best_route = None
+        min_cost = float('inf')
+        min_distance = float('inf')
+
+        for route in drivers_and_routes:
+            if len(route['assigned_users']) < route['vehicle_type']:
+                if route['assigned_users']:
+                    centroid_lat = np.mean([u['lat'] for u in route['assigned_users']])
+                    centroid_lng = np.mean([u['lng'] for u in route['assigned_users']])
+                else:
+                    centroid_lat, centroid_lng = route['latitude'], route['longitude']
+
+                dist = haversine_distance(centroid_lat, centroid_lng,
+                                          user['latitude'], user['longitude'])
+
+                if dist <= MAX_FILL_DISTANCE_KM:
+                    # Calculate cost-based assignment
+                    user_positions = [(u['lat'], u['lng']) for u in route['assigned_users']]
+                    user_positions.append((user['latitude'], user['longitude']))
+
+                    mock_route = {'capacity': route['vehicle_type']}
+                    cost = calculate_enhanced_cost(mock_route, (route['latitude'], route['longitude']),
+                                                   user_positions, user_df.iloc[0]['office_latitude'],
+                                                   user_df.iloc[0]['office_longitude'])
+
+                    if cost < min_cost:
+                        min_cost = cost
+                        min_distance = dist
+                        best_route = route
+
+        if best_route:
+            user_data = {
+                'user_id': str(user['user_id']),
+                'lat': float(user['latitude']),
+                'lng': float(user['longitude']),
+                'office_distance': float(user.get('office_distance', 0))
+            }
+
+            if pd.notna(user.get('first_name')):
+                user_data['first_name'] = str(user['first_name'])
+            if pd.notna(user.get('email')):
+                user_data['email'] = str(user['email'])
+
+            best_route['assigned_users'].append(user_data)
+            assigned_user_ids.add(user['user_id'])
+            # Remove user from unassigned_users to avoid re-assignment in this loop
+            unassigned_users = unassigned_users[unassigned_users['user_id'] != user['user_id']]
+        else:
+            # User is isolated (too far from all existing routes)
+            isolated_users.append(user)
+
+
+    # Handle isolated users by creating dedicated single-user routes if drivers available
+    if isolated_users and not available_drivers.empty:
+        print(f"🏝️ Creating dedicated routes for {len(isolated_users)} isolated users...")
+        available_drivers_list = available_drivers.to_dict('records')
+
+        for user in isolated_users:
+            if not available_drivers_list:
+                break
+
+            # Find closest available driver for the isolated user
+            user_pos = (user['latitude'], user['longitude'])
+            closest_driver = min(
+                available_drivers_list,
+                key=lambda d: haversine_distance(user_pos[0], user_pos[1],
+                                               d['latitude'], d['longitude'])
+            )
+
+            # Create dedicated single-user route
+            route = create_route_from_users(
+                closest_driver, [user.to_dict()],
+                user_df.iloc[0]['office_latitude'],
+                user_df.iloc[0]['office_longitude'])
+
+            assigned_user_ids.add(user['user_id'])
+            drivers_and_routes.append(route)
+            available_drivers_list.remove(closest_driver)
+            print(f"   ✅ Created route for isolated user {user['user_id']} with driver {closest_driver['driver_id']}")
+
+    # Create new routes for remaining users
+    remaining_unassigned = user_df[~user_df['user_id'].isin(assigned_user_ids)].copy()
+
+    if not remaining_unassigned.empty and not available_drivers.empty:
+        available_drivers_list = available_drivers.to_dict('records')
+
+        if len(remaining_unassigned) > 1:
+            coords = remaining_unassigned[['latitude', 'longitude']].values
+            # Determine number of clusters, limited by available drivers and number of users
+            n_clusters = min(len(available_drivers_list), len(remaining_unassigned))
+            if n_clusters > 1 and len(remaining_unassigned) >= n_clusters:
+                kmeans = KMeans(n_clusters=n_clusters, random_state=42)
+                remaining_unassigned['cluster'] = kmeans.fit_predict(coords)
+            else:
+                remaining_unassigned['cluster'] = 0
+        else:
+            remaining_unassigned['cluster'] = 0
+
+        for cluster_id, cluster_users in remaining_unassigned.groupby('cluster'):
+            if not available_drivers_list:
+                break
+
+            centroid = cluster_users[['latitude', 'longitude']].mean().values
+
+            # Find the closest available driver for this cluster
+            closest_driver = min(
+                available_drivers_list,
+                key=lambda d: haversine_distance(centroid[0], centroid[1],
+                                               d['latitude'], d['longitude'])
+            )
+
+            capacity = closest_driver['capacity']
+            users_to_assign = cluster_users.head(capacity)
+
+            route = create_route_from_users(
+                closest_driver, users_to_assign.to_dict('records'),
+                user_df.iloc[0]['office_latitude'],
+                user_df.iloc[0]['office_longitude'])
+
+            for _, user in users_to_assign.iterrows():
+                assigned_user_ids.add(user['user_id'])
+
+            drivers_and_routes.append(route)
+            available_drivers_list.remove(closest_driver)
+
+    # Return final unassigned users
+    final_unassigned = user_df[~user_df['user_id'].isin(assigned_user_ids)].copy()
+    unassigned_list = []
+
+    for _, user in final_unassigned.iterrows():
+        user_data = {
+            'user_id': str(user['user_id']),
+            'lat': float(user['latitude']),
+            'lng': float(user['longitude']),
+            'office_distance': float(user.get('office_distance', 0))
+        }
+
+        if pd.notna(user.get('first_name')):
+            user_data['first_name'] = str(user['first_name'])
+        if pd.notna(user.get('email')):
+            user_data['email'] = str(user['email'])
+
+        unassigned_list.append(user_data)
+
+    return unassigned_list
+
+
+def calculate_route_bearing(route, office_lat, office_lon):
+    """Calculate representative bearing for a route"""
+    if not route['assigned_users']:
+        return 0
+    avg_lat = sum(u['lat'] for u in route['assigned_users']) / len(
+        route['assigned_users'])
+    avg_lng = sum(u['lng'] for u in route['assigned_users']) / len(
+        route['assigned_users'])
+    return calculate_bearing(avg_lat, avg_lng, office_lat, office_lon)
+
+
+def reassign_underutilized_users_to_nearby_routes(drivers_and_routes,
+                                                  unassigned_drivers,
+                                                  office_lat, office_lon):
+    """Reassign users from underutilized routes to nearby better routes"""
+    reassigned_users = []
+    routes_to_remove = set()
+
+    # Merge underfilled nearby routes
+    merged_routes = []
+    routes_used = set()
+
+    for i, route_a in enumerate(drivers_and_routes):
+        if i in routes_used:
+            continue
+
+        # Check if route_a is underutilized
+        is_route_a_underutilized = route_a.get('utilization', 0) < MIN_UTIL_THRESHOLD
+
+        if not is_route_a_underutilized:
+            merged_routes.append(route_a)
+            routes_used.add(i)
+            continue
+
+        merged = False
+        for j, route_b in enumerate(drivers_and_routes[i + 1:], start=i + 1):
+            if j in routes_used or route_b.get('utilization', 0) >= 1.0: # Don't merge with full routes
+                continue
+
+            combined_users = route_a['assigned_users'] + route_b[
+                'assigned_users']
+            # Check if combined users fit into the max capacity of either vehicle
+            if len(combined_users) <= max(route_a['vehicle_type'],
+                                          route_b['vehicle_type']):
+                centroid_a = route_a.get(
+                    'centroid', [route_a['latitude'], route_a['longitude']])
+                centroid_b = route_b.get(
+                    'centroid', [route_b['latitude'], route_b['longitude']])
+                dist = haversine_distance(centroid_a[0], centroid_a[1],
+                                          centroid_b[0], centroid_b[1])
+
+                bearing_a = calculate_route_bearing(route_a, office_lat,
+                                                    office_lon)
+                bearing_b = calculate_route_bearing(route_b, office_lat,
+                                                    office_lon)
+                bearing_diff = bearing_difference(bearing_a, bearing_b)
+
+                if dist <= MERGE_DISTANCE_KM and bearing_diff <= MAX_BEARING_DIFFERENCE:
+                    # Merge route_a into route_b (or a new combined route)
+                    if route_b['vehicle_type'] >= route_a['vehicle_type']:
+                        target_route, source_route = route_b, route_a
+                        target_id, source_id = j, i
+                    else:
+                        target_route, source_route = route_a, route_b
+                        target_id, source_id = i, j
+
+                    target_route['assigned_users'].extend(source_route['assigned_users'])
+                    target_route['vehicle_type'] = max(route_a['vehicle_type'], route_b['vehicle_type']) # Update capacity if needed
+                    target_route = update_route_metrics_single(target_route)
+
+                    routes_used.add(target_id) # Mark the target route as used
+                    routes_used.add(source_id) # Mark the source route as used
+                    merged = True
+                    merged_routes.append(target_route) # Add the merged route
+                    break # Stop searching for merges for route_a
+
+        # If route_a wasn't merged, keep it and mark as used
+        if not merged:
+            merged_routes.append(route_a)
+            routes_used.add(i)
+
+    # Add any routes that were not merged
+    for i, route in enumerate(drivers_and_routes):
+        if i not in routes_used:
+            merged_routes.append(route)
+
+    drivers_and_routes = merged_routes
+
+    # Fallback reassignment for low utilization routes
+    low_util_routes = [
+        r for r in drivers_and_routes
+        if r.get('utilization', 0) < LOW_UTILIZATION_THRESHOLD
+        and len(r['assigned_users']) <= MAX_USERS_FOR_FALLBACK
+    ]
+    combined_users = []
+    fallback_route_indices = []
+
+    for route in low_util_routes:
+        combined_users.extend(route['assigned_users'])
+        idx = drivers_and_routes.index(route)
+        fallback_route_indices.append(idx)
+
+    # Check if the combined users fit the criteria for a fallback assignment
+    if FALLBACK_MIN_USERS <= len(combined_users) <= FALLBACK_MAX_USERS:
+        fallback_driver = None
+        # Find a suitable unassigned driver
+        for i, drv in enumerate(unassigned_drivers):
+            if drv['capacity'] >= len(combined_users):
+                fallback_driver = unassigned_drivers.pop(i) # Take driver from list
+                break
+
+        if fallback_driver:
+            # Remove the original low-utilization routes
+            for idx in fallback_route_indices:
+                routes_to_remove.add(idx)
+
+            # Create a new route with the fallback driver and combined users
+            new_route = {
+                'driver_id': fallback_driver['driver_id'],
+                'vehicle_id': fallback_driver['vehicle_id'],
+                'vehicle_type': fallback_driver['capacity'],
+                'latitude': fallback_driver['latitude'],
+                'longitude': fallback_driver['longitude'],
+                'assigned_users': combined_users
+            }
+            drivers_and_routes.append(new_route)
+
+    # Individual reassignment for remaining underutilized routes
+    for i, source_route in enumerate(drivers_and_routes):
+        if i in routes_to_remove or source_route.get('utilization',
+                                                     0) >= MIN_UTIL_THRESHOLD:
+            continue
+
+        source_bearing = calculate_route_bearing(source_route, office_lat,
+                                                 office_lon)
+        remaining_users_in_source = []
+
+        for user in source_route['assigned_users']:
+            best_target_route_index = -1
+            best_target_cost = float('inf')
+
+            # Find the best target route for the user
+            for j, target_route in enumerate(drivers_and_routes):
+                # Skip self, full routes, or already removed routes
+                if j == i or j in routes_to_remove or len(target_route['assigned_users']
+                                                          ) >= target_route['vehicle_type']:
                     continue
 
-                driver_ids_seen.add(driver_id)
+                # Calculate distance to target route's centroid
+                centroid = target_route.get(
+                    'centroid',
+                    [target_route['latitude'], target_route['longitude']])
+                distance = haversine_distance(centroid[0], centroid[1],
+                                              user['lat'], user['lng'])
 
-                # Update all route metrics including efficiency
-                if route['assigned_users']:
-                    lats = [u['lat'] for u in route['assigned_users']]
-                    lngs = [u['lng'] for u in route['assigned_users']]
-                    route['centroid'] = [np.mean(lats), np.mean(lngs)]
-                    route['utilization'] = len(route['assigned_users']) / route['vehicle_type']
-                    route['stops'] = [[u['lat'], u['lng']] for u in route['assigned_users']]
-                    route['bearing'] = calculate_bearing(route['centroid'][0], route['centroid'][1], office_lat, office_lon)
+                # Calculate bearing difference
+                target_bearing = calculate_route_bearing(
+                    target_route, office_lat, office_lon)
+                bearing_diff = bearing_difference(source_bearing,
+                                                  target_bearing)
 
-                    # Calculate final efficiency score
-                    user_positions = [(u['lat'], u['lng']) for u in route['assigned_users']]
-                    route['efficiency_score'] = calculate_route_efficiency_score(user_positions, office_lat, office_lon)
+                # Check if within merge distance and bearing difference constraints
+                if distance <= MERGE_DISTANCE_KM and bearing_diff <= 45:
+                    cost = distance + (bearing_diff / 90.0) # Weighted cost
+                    if cost < best_target_cost:
+                        best_target_cost = cost
+                        best_target_route_index = j
 
-                    # Validate directional coherence
-                    if len(route['assigned_users']) > 1:
-                        user_bearings = [calculate_bearing(office_lat, office_lon, u['lat'], u['lng']) for u in route['assigned_users']]
-                        max_spread = max(bearing_difference(user_bearings[i], user_bearings[j])
-                                       for i in range(len(user_bearings))
-                                       for j in range(i + 1, len(user_bearings)))
-                        route['bearing_spread'] = max_spread
-                        route['directional_coherence'] = max_spread <= MAX_BEARING_DIFFERENCE
-                    else:
-                        route['bearing_spread'] = 0
-                        route['directional_coherence'] = True
-                else:
-                    route['centroid'] = [route['latitude'], route['longitude']]
-                    route['utilization'] = 0
-                    route['stops'] = []
-                    route['bearing'] = 0
-                    route['efficiency_score'] = 1.0
-                    route['bearing_spread'] = 0
-                    route['directional_coherence'] = True
+            # If a suitable target route was found, reassign the user
+            if best_target_route_index != -1:
+                drivers_and_routes[best_target_route_index]['assigned_users'].append(user)
+                reassigned_users.append(user['user_id'])
+            else:
+                remaining_users_in_source.append(user) # User could not be reassigned
 
-                unique_routes.append(route)
+        # Update the source route with remaining users
+        source_route['assigned_users'] = remaining_users_in_source
+        # If no users left in source route, mark for removal
+        if not source_route['assigned_users']:
+            routes_to_remove.add(i)
 
-            # Print efficiency summary
-            if unique_routes:
-                avg_efficiency = np.mean([r['efficiency_score'] for r in unique_routes])
-                coherent_routes = sum(1 for r in unique_routes if r['directional_coherence'])
-                print(f"📊 FINAL ROUTE QUALITY:")
-                print(f"   Average efficiency score: {avg_efficiency:.3f}")
-                print(f"   Directionally coherent routes: {coherent_routes}/{len(unique_routes)}")
-                print(f"   Routes below efficiency threshold: {sum(1 for r in unique_routes if r['efficiency_score'] < ROUTE_EFFICIENCY_THRESHOLD)}")
-
-            return unique_routes
+    # Filter out routes marked for removal
+    drivers_and_routes = [
+        r for idx, r in enumerate(drivers_and_routes)
+        if idx not in routes_to_remove
+    ]
+    drivers_and_routes = finalize_routes(drivers_and_routes, office_lat,
+                                         office_lon)
+    return drivers_and_routes
 
 
-        # MAIN OPTIMIZED ASSIGNMENT FUNCTION
+def finalize_routes(drivers_and_routes, office_lat, office_lon):
+    """Finalize routes with updated metrics and validate driver uniqueness"""
+    # Validate driver uniqueness to prevent duplicacy
+    driver_ids_seen = set()
+    unique_routes = []
+
+    for route in drivers_and_routes:
+        driver_id = route['driver_id']
+        if driver_id in driver_ids_seen:
+            print(f"⚠️ WARNING: Duplicate driver {driver_id} detected and removed!")
+            continue  # Skip duplicate driver routes
+
+        driver_ids_seen.add(driver_id)
+
+        # Update route metrics
+        if route['assigned_users']:
+            lats = [u['lat'] for u in route['assigned_users']]
+            lngs = [u['lng'] for u in route['assigned_users']]
+            route['centroid'] = [np.mean(lats), np.mean(lngs)]
+            route['utilization'] = len(route['assigned_users']) / route['vehicle_type']
+            route['stops'] = [[u['lat'], u['lng']] for u in route['assigned_users']]
+            route['bearing'] = calculate_bearing(route['centroid'][0], route['centroid'][1], office_lat, office_lon)
+        else:
+            route['centroid'] = [route['latitude'], route['longitude']]
+            route['utilization'] = 0
+            route['stops'] = []
+            route['bearing'] = 0
+
+        unique_routes.append(route)
+
+    print(f"✅ Driver uniqueness validated - {len(unique_routes)} unique routes finalized")
+    return unique_routes
+
+
+# MAIN SIMPLIFIED ENHANCED ASSIGNMENT FUNCTION
 def run_assignment(source_id: str, parameter: int = 1, string_param: str = ""):
-            """
-            COMPLETELY OPTIMIZED assignment that prioritizes route efficiency above all else
-            """
-            start_time = time.time()
+    """
+    Enhanced assignment with comprehensive edge case handling
+    """
+    start_time = time.time()
 
-            try:
-                print(f"🚀 Starting ROUTE-OPTIMIZED assignment for source_id: {source_id}")
-                print(f"🎯 PRIMARY GOAL: Optimal directional routes")
-                print(f"🔧 SECONDARY GOAL: Driver priority and capacity utilization")
+    try:
+        print(
+            f"🚀 Starting enhanced assignment for source_id: {source_id}, parameter: {parameter}, string_param: {string_param}"
+        )
 
-                # Load and validate data
-                data = load_env_and_fetch_data(source_id, parameter, string_param)
+        # Load and validate data
+        data = load_env_and_fetch_data(source_id, parameter, string_param)
 
-                # EDGE CASE: No users
-                users = data.get('users', [])
-                if not users:
-                    print("⚠️ No users found - returning empty assignment")
-                    return {
-                        "status": "true",
-                        "execution_time": time.time() - start_time,
-                        "data": [],
-                        "unassignedUsers": [],
-                        "unassignedDrivers": _get_all_drivers_as_unassigned(data),
-                        "clustering_analysis": {"method": "No Users", "clusters": 0},
-                        "parameter": parameter,
-                        "string_param": string_param,
-                        "warnings": ["No users to assign"]
-                    }
+        # EDGE CASE: No users
+        users = data.get('users', [])
+        if not users:
+            print("⚠️ No users found - returning empty assignment")
+            return {
+                "status": "true",
+                "execution_time": time.time() - start_time,
+                "data": [],
+                "unassignedUsers": [],
+                "unassignedDrivers": _get_all_drivers_as_unassigned(data),
+                "clustering_analysis": {"method": "No Users", "clusters": 0},
+                "parameter": parameter,
+                "string_param": string_param,
+                "warnings": ["No users to assign"]
+            }
 
-                # Get all drivers
-                all_drivers = []
-                if "drivers" in data:
-                    drivers_data = data["drivers"]
-                    all_drivers.extend(drivers_data.get("driversUnassigned", []))
-                    all_drivers.extend(drivers_data.get("driversAssigned", []))
+        # Get all drivers
+        all_drivers = []
+        if "drivers" in data:
+            drivers_data = data["drivers"]
+            all_drivers.extend(drivers_data.get("driversUnassigned", []))
+            all_drivers.extend(drivers_data.get("driversAssigned", []))
+        else:
+            all_drivers.extend(data.get("driversUnassigned", []))
+            all_drivers.extend(data.get("driversAssigned", []))
+
+        # EDGE CASE: No drivers
+        if not all_drivers:
+            print("⚠️ No drivers available - all users unassigned")
+            unassigned_users = _convert_users_to_unassigned_format(users)
+            return {
+                "status": "true",
+                "execution_time": time.time() - start_time,
+                "data": [],
+                "unassignedUsers": unassigned_users,
+                "unassignedDrivers": [],
+                "clustering_analysis": {"method": "No Drivers", "clusters": 0},
+                "parameter": parameter,
+                "string_param": string_param,
+                "warnings": ["No drivers available for assignment"]
+            }
+
+        total_drivers = len(all_drivers)
+        print(
+            f"📥 Data loaded - Users: {len(users)}, Total Drivers: {total_drivers}"
+        )
+
+        # Extract dynamic office coordinates with validation
+        office_lat, office_lon = extract_office_coordinates(data)
+        if not (-90 <= office_lat <= 90) or not (-180 <= office_lon <= 180):
+            print(f"⚠️ Invalid office coordinates, using defaults")
+            office_lat, office_lon = OFFICE_LAT, OFFICE_LON
+
+        print(f"🏢 Office coordinates - Lat: {office_lat}, Lon: {office_lon}")
+
+        validate_input_data(data)
+        print("✅ Data validation passed")
+
+
+        user_df, driver_df = prepare_user_driver_dataframes(data)
+        print(
+            f"📊 DataFrames prepared - Users: {len(user_df)}, Drivers: {len(driver_df)}"
+        )
+
+        user_df = calculate_bearings_and_features(user_df, office_lat,
+                                                  office_lon)
+        print("🧭 Bearings and geographical features calculated")
+
+        # Enhanced but practical clustering
+        user_df, clustering_results = enhanced_geographical_clustering(
+            user_df, office_lat, office_lon)
+
+        clusters_found = user_df['geo_cluster'].nunique()
+        print(
+            f"🗂️ Enhanced clustering complete - {clusters_found} clusters found using {clustering_results['method']}"
+        )
+
+        # Optimized assignment
+        drivers_and_routes, assigned_user_ids = optimize_driver_assignment(
+            user_df, driver_df)
+        print(
+            f"🚗 Initial assignment complete - {len(drivers_and_routes)} routes, {len(assigned_user_ids)} users assigned"
+        )
+
+        # Fill underutilized routes
+        assigned_user_ids = fill_underutilized_routes(drivers_and_routes,
+                                                      user_df,
+                                                      assigned_user_ids)
+        print(
+            f"📈 Underutilized routes filled - {len(assigned_user_ids)} total users assigned"
+        )
+
+        # Simplified local search optimization
+        drivers_and_routes = simplified_local_search(drivers_and_routes)
+
+        # Handle remaining users
+        unassigned_users = handle_remaining_users(user_df, drivers_and_routes,
+                                                  assigned_user_ids, driver_df)
+        print(
+            f"👥 Remaining users handled - {len(unassigned_users)} unassigned")
+
+        # Merge underutilized routes
+        drivers_and_routes = merge_underutilized_routes(drivers_and_routes)
+        print("🔄 Route merging optimization complete")
+
+        # Build unassigned drivers list
+        assigned_driver_ids = {
+            route['driver_id']
+            for route in drivers_and_routes
+        }
+        unassigned_drivers_df = driver_df[~driver_df['driver_id'].
+                                          isin(assigned_driver_ids)]
+        unassigned_drivers = []
+        for _, driver in unassigned_drivers_df.iterrows():
+            driver_data = {
+                'driver_id': str(driver['driver_id']),
+                'capacity': int(driver['capacity']),
+                'vehicle_id': str(driver.get('vehicle_id', '')),
+                'latitude': float(driver['latitude']),
+                'longitude': float(driver['longitude'])
+            }
+            unassigned_drivers.append(driver_data)
+
+        # Final reassignment optimization
+        drivers_and_routes = reassign_underutilized_users_to_nearby_routes(
+            drivers_and_routes, unassigned_drivers, office_lat, office_lon)
+
+        # Validate user uniqueness before finalizing
+        all_assigned_user_ids = set()
+        validated_routes = []
+
+        for route in drivers_and_routes:
+            unique_users = []
+            for user in route['assigned_users']:
+                user_id = user['user_id']
+                if user_id not in all_assigned_user_ids:
+                    all_assigned_user_ids.add(user_id)
+                    unique_users.append(user)
                 else:
-                    all_drivers.extend(data.get("driversUnassigned", []))
-                    all_drivers.extend(data.get("driversAssigned", []))
+                    print(f"⚠️ WARNING: Duplicate user {user_id} detected and removed from route!")
 
-                # EDGE CASE: No drivers
-                if not all_drivers:
-                    print("⚠️ No drivers available - all users unassigned")
-                    unassigned_users = _convert_users_to_unassigned_format(users)
-                    return {
-                        "status": "true",
-                        "execution_time": time.time() - start_time,
-                        "data": [],
-                        "unassignedUsers": unassigned_users,
-                        "unassignedDrivers": [],
-                        "clustering_analysis": {"method": "No Drivers", "clusters": 0},
-                        "parameter": parameter,
-                        "string_param": string_param,
-                        "warnings": ["No drivers available for assignment"]
-                    }
+            route['assigned_users'] = unique_users
+            validated_routes.append(route)
 
-                total_drivers = len(all_drivers)
-                print(f"📥 Data loaded - Users: {len(users)}, Total Drivers: {total_drivers}")
+        drivers_and_routes = validated_routes
 
-                # Extract dynamic office coordinates with validation
-                office_lat, office_lon = extract_office_coordinates(data)
-                if not (-90 <= office_lat <= 90) or not (-180 <= office_lon <= 180):
-                    print(f"⚠️ Invalid office coordinates, using defaults")
-                    office_lat, office_lon = OFFICE_LAT, OFFICE_LON
+        # Finalize routes with all metrics
+        drivers_and_routes = finalize_routes(drivers_and_routes, office_lat, office_lon)
+        print("✅ Routes finalized with metrics and uniqueness validated")
 
-                print(f"🏢 Office coordinates - Lat: {office_lat}, Lon: {office_lon}")
+        execution_time = time.time() - start_time
 
-                validate_input_data(data)
-                print("✅ Data validation passed")
+        print(
+            f"✅ Enhanced assignment complete in {execution_time:.2f}s"
+        )
+        print(f"📊 Final routes: {len(drivers_and_routes)}")
+        print(f"🎯 Clustering method: {clustering_results['method']}")
 
-                user_df, driver_df = prepare_user_driver_dataframes(data)
-                print(f"📊 DataFrames prepared - Users: {len(user_df)}, Drivers: {len(driver_df)}")
+        # Use the provided parameter
+        print(f"📋 Parameter value: {parameter}")
+        print(f"📋 String parameter value: {string_param}")
 
-                user_df = calculate_bearings_and_features(user_df, office_lat, office_lon)
-                print("🧭 Bearings and geographical features calculated")
+        return {
+            "status": "true",
+            "execution_time": execution_time,
+            "data": drivers_and_routes,
+            "unassignedUsers": unassigned_users,
+            "unassignedDrivers": unassigned_drivers,
+            "clustering_analysis": clustering_results,
+            "parameter": parameter,
+            "string_param": string_param
+        }
 
-                # Add office coordinates to user_df for later use
-                user_df['office_latitude'] = office_lat
-                user_df['office_longitude'] = office_lon
-
-                # REVOLUTIONARY DIRECTIONAL-FIRST CLUSTERING
-                user_df, clustering_results = directional_first_clustering(user_df, office_lat, office_lon)
-                clusters_found = user_df['directional_cluster'].nunique()
-                print(f"🎯 DIRECTIONAL-FIRST clustering complete - {clusters_found} clusters found")
-
-                # PRIORITY-FIRST DRIVER ASSIGNMENT (Driver priority strictly enforced)
-                routes, assigned_user_ids = priority_driver_assignment(user_df, driver_df)
-                print(f"🚗 PRIORITY assignment complete - {len(routes)} routes, {len(assigned_user_ids)} users assigned")
-
-                # SMART ROUTE MERGING WITH PATH OPTIMIZATION (merge routes considering path efficiency)
-                routes = smart_route_merging_with_path_optimization(routes)
-                print(f"🌍 Smart route merging complete - {len(routes)} routes after merging")
-
-                # STRICT route filling (maintains efficiency)
-                assigned_user_ids = strict_fill_routes(routes, user_df, assigned_user_ids)
-                print(f"📈 Strict route filling complete - {len(assigned_user_ids)} total users assigned")
-
-                # EFFICIENCY-FOCUSED local search
-                routes = optimized_local_search(routes)
-
-                # REASSIGN underutilized routes (from old code approach)
-                routes = reassign_underutilized_routes(routes)
-
-                # Handle remaining users optimally
-                unassigned_users = handle_remaining_users_optimally(user_df, routes, assigned_user_ids, driver_df)
-                print(f"👥 Remaining users handled - {len(unassigned_users)} unassigned")
-
-                # Build unassigned drivers list
-                assigned_driver_ids = {route['driver_id'] for route in routes}
-                unassigned_drivers_df = driver_df[~driver_df['driver_id'].isin(assigned_driver_ids)]
-                unassigned_drivers = []
-                for _, driver in unassigned_drivers_df.iterrows():
-                    driver_data = {
-                        'driver_id': str(driver['driver_id']),
-                        'capacity': int(driver['capacity']),
-                        'vehicle_id': str(driver.get('vehicle_id', '')),
-                        'latitude': float(driver['latitude']),
-                        'longitude': float(driver['longitude'])
-                    }
-                    unassigned_drivers.append(driver_data)
-
-                # Finalize routes with efficiency metrics
-                routes = finalize_routes_with_efficiency(routes, office_lat, office_lon)
-                print("✅ Routes finalized with efficiency scoring")
-
-                execution_time = time.time() - start_time
-
-                print(f"✅ ROUTE-OPTIMIZED assignment complete in {execution_time:.2f}s")
-                print(f"📊 Final routes: {len(routes)}")
-                print(f"🎯 Clustering method: {clustering_results['method']}")
-
-                return {
-                    "status": "true",
-                    "execution_time": execution_time,
-                    "data": routes,
-                    "unassignedUsers": unassigned_users,
-                    "unassignedDrivers": unassigned_drivers,
-                    "clustering_analysis": clustering_results,
-                    "parameter": parameter,
-                    "string_param": string_param
-                }
-
-            except requests.exceptions.RequestException as req_err:
-                logger.error(f"API request failed: {req_err}")
-                return {"status": "false", "details": str(req_err), "data": []}
-            except ValueError as val_err:
-                logger.error(f"Data validation error: {val_err}")
-                return {"status": "false", "details": str(val_err), "data": []}
-            except Exception as e:
-                logger.error(f"Assignment failed: {e}", exc_info=True)
-                return {"status": "false", "details": str(e), "data": []}
+    except requests.exceptions.RequestException as req_err:
+        logger.error(f"API request failed: {req_err}")
+        return {"status": "false", "details": str(req_err), "data": []}
+    except ValueError as val_err:
+        logger.error(f"Data validation error: {val_err}")
+        return {"status": "false", "details": str(val_err), "data": []}
+    except Exception as e:
+        logger.error(f"Assignment failed: {e}", exc_info=True)
+        return {"status": "false", "details": str(e), "data": []}
 
 
 def _get_all_drivers_as_unassigned(data):
-            """Helper to get all drivers in the unassigned format"""
-            all_drivers = []
-            if "drivers" in data:
-                drivers_data = data["drivers"]
-                all_drivers.extend(drivers_data.get("driversUnassigned", []))
-                all_drivers.extend(drivers_data.get("driversAssigned", []))
-            else:
-                all_drivers.extend(data.get("driversUnassigned", []))
-                all_drivers.extend(data.get("driversAssigned", []))
+    """Helper to get all drivers in the unassigned format"""
+    all_drivers = []
+    if "drivers" in data:
+        drivers_data = data["drivers"]
+        all_drivers.extend(drivers_data.get("driversUnassigned", []))
+        all_drivers.extend(drivers_data.get("driversAssigned", []))
+    else:
+        all_drivers.extend(data.get("driversUnassigned", []))
+        all_drivers.extend(data.get("driversAssigned", []))
 
-            unassigned_drivers = []
-            for driver in all_drivers:
-                unassigned_drivers.append({
-                    'driver_id': str(driver.get('id', '')),
-                    'capacity': int(driver.get('capacity', 0)),
-                    'vehicle_id': str(driver.get('vehicle_id', '')),
-                    'latitude': float(driver.get('latitude', 0.0)),
-                    'longitude': float(driver.get('longitude', 0.0))
-                })
-            return unassigned_drivers
+    unassigned_drivers = []
+    for driver in all_drivers:
+        unassigned_drivers.append({
+            'driver_id': str(driver.get('id', '')),
+            'capacity': int(driver.get('capacity', 0)),
+            'vehicle_id': str(driver.get('vehicle_id', '')),
+            'latitude': float(driver.get('latitude', 0.0)),
+            'longitude': float(driver.get('longitude', 0.0))
+        })
+    return unassigned_drivers
 
 
 def _convert_users_to_unassigned_format(users):
-            """Helper to convert user data to unassigned format"""
-            unassigned_users = []
-            for user in users:
-                unassigned_users.append({
-                    'user_id': str(user.get('id', '')),
-                    'lat': float(user.get('latitude', 0.0)),
-                    'lng': float(user.get('longitude', 0.0)),
-                    'office_distance': float(user.get('office_distance', 0.0)),
-                    'first_name': str(user.get('first_name', '')),
-                    'email': str(user.get('email', ''))
-                })
-            return unassigned_users
+    """Helper to convert user data to unassigned format"""
+    unassigned_users = []
+    for user in users:
+        unassigned_users.append({
+            'user_id': str(user.get('id', '')),
+            'lat': float(user.get('latitude', 0.0)),
+            'lng': float(user.get('longitude', 0.0)),
+            'office_distance': float(user.get('office_distance', 0.0)),
+            'first_name': str(user.get('first_name', '')),
+            'email': str(user.get('email', ''))
+        })
+    return unassigned_users
 
 
 def analyze_assignment_quality(result):
-            """Analyze the quality of the assignment with enhanced metrics including efficiency"""
-            if result["status"] != "true":
-                return "Assignment failed"
+    """Analyze the quality of the assignment with enhanced metrics"""
+    if result["status"] != "true":
+        return "Assignment failed"
 
-            total_routes = len(result["data"])
-            total_assigned = sum(len(route["assigned_users"]) for route in result["data"])
-            total_unassigned = len(result["unassignedUsers"])
+    total_routes = len(result["data"])
+    total_assigned = sum(
+        len(route["assigned_users"]) for route in result["data"])
+    total_unassigned = len(result["unassignedUsers"])
 
-            utilizations = []
-            efficiency_scores = []
-            distance_issues = []
-            directional_issues = []
+    utilizations = []
+    distance_issues = []
 
-            for route in result["data"]:
-                if route["assigned_users"]:
-                    util = len(route["assigned_users"]) / route["vehicle_type"]
-                    utilizations.append(util)
+    for route in result["data"]:
+        if route["assigned_users"]:
+            util = len(route["assigned_users"]) / route["vehicle_type"]
+            utilizations.append(util)
 
-                    efficiency = route.get('efficiency_score', 0)
-                    efficiency_scores.append(efficiency)
+            # Check distances
+            driver_pos = (route["latitude"], route["longitude"])
+            for user in route["assigned_users"]:
+                dist = haversine_distance(driver_pos[0], driver_pos[1],
+                                          user["lat"], user["lng"])
+                if dist > DISTANCE_ISSUE_THRESHOLD:
+                    distance_issues.append({
+                        "driver_id": route["driver_id"],
+                        "user_id": user["user_id"],
+                        "distance_km": round(dist, 2)
+                    })
 
-                    # Check for directional coherence issues
-                    if not route.get('directional_coherence', True):
-                        directional_issues.append({
-                            "driver_id": route["driver_id"],
-                            "bearing_spread": route.get('bearing_spread', 0),
-                            "users_count": len(route["assigned_users"])
-                        })
+    analysis = {
+        "total_routes":
+        total_routes,
+        "total_assigned_users":
+        total_assigned,
+        "total_unassigned_users":
+        total_unassigned,
+        "assignment_rate":
+        round(total_assigned / (total_assigned + total_unassigned) * 100, 1) if
+        (total_assigned + total_unassigned) > 0 else 0,
+        "avg_utilization":
+        round(np.mean(utilizations) * 100, 1) if utilizations else 0,
+        "min_utilization":
+        round(np.min(utilizations) * 100, 1) if utilizations else 0,
+        "max_utilization":
+        round(np.max(utilizations) * 100, 1) if utilizations else 0,
+        "routes_below_80_percent":
+        sum(1 for u in utilizations if u < 0.8),
+        "distance_issues":
+        distance_issues,
+        "clustering_method":
+        result.get("clustering_analysis", {}).get("method", "Unknown")
+    }
 
-                    # Check distances
-                    driver_pos = (route["latitude"], route["longitude"])
-                    for user in route["assigned_users"]:
-                        dist = haversine_distance(driver_pos[0], driver_pos[1], user["lat"], user["lng"])
-                        if dist > DISTANCE_ISSUE_THRESHOLD:
-                            distance_issues.append({
-                                "driver_id": route["driver_id"],
-                                "user_id": user["user_id"],
-                                "distance_km": round(dist, 2)
-                            })
-
-            analysis = {
-                "total_routes": total_routes,
-                "total_assigned_users": total_assigned,
-                "total_unassigned_users": total_unassigned,
-                "assignment_rate": round(total_assigned / (total_assigned + total_unassigned) * 100, 1) if (total_assigned + total_unassigned) > 0 else 0,
-                "avg_utilization": round(np.mean(utilizations) * 100, 1) if utilizations else 0,
-                "avg_efficiency_score": round(np.mean(efficiency_scores), 3) if efficiency_scores else 0,
-                "min_efficiency_score": round(np.min(efficiency_scores), 3) if efficiency_scores else 0,
-                "routes_below_efficiency_threshold": sum(1 for e in efficiency_scores if e < ROUTE_EFFICIENCY_THRESHOLD),
-                "routes_below_80_percent_utilization": sum(1 for u in utilizations if u < 0.8),
-                "distance_issues": len(distance_issues),
-                "directional_issues": len(directional_issues),
-                "directional_coherence_rate": round((total_routes - len(directional_issues)) / total_routes * 100, 1) if total_routes > 0 else 100,
-                "clustering_method": result.get("clustering_analysis", {}).get("method", "Unknown")
-            }
-
-            return analysis
+    return analysis
