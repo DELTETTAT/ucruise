@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -884,7 +883,7 @@
                     <div class="legend-icon" style="background: linear-gradient(45deg, #f59e0b, #d97706);">
                         🛣️
                     </div>
-                    <span>Real Driving Routes</span>
+                    <span>Sequential Routes (Driver → Users → Office)</span>
                 </div>
                 <div class="cluster-palette" id="clusterPalette"></div>
             </div>
@@ -917,7 +916,7 @@
             office: null,
             drivers: [],
             users: [],
-            routes: []
+            routes: [] // For sequential route markers
         };
         let heatmap = null;
         let routeRenderers = [];
@@ -1204,12 +1203,11 @@
                 markers.drivers.push({ marker: driverMarker, infoWindow: driverInfo });
             }
 
-            // Create enhanced user markers and real routes
+            // Create enhanced user markers
             route.assigned_users.forEach((user, userIndex) => {
                 const userLat = parseFloat(user.lat);
                 const userLng = parseFloat(user.lng);
 
-                // Enhanced user marker
                 if (displayState.users) {
                     const userMarker = new google.maps.Marker({
                         position: { lat: userLat, lng: userLng },
@@ -1245,50 +1243,12 @@
 
                     markers.users.push({ marker: userMarker, infoWindow: userInfo });
                 }
-
-                // Real driving routes using Google Directions API
-                if (displayState.routeLines) {
-                    const directionsRenderer = new google.maps.DirectionsRenderer({
-                        suppressMarkers: true,
-                        preserveViewport: true,
-                        polylineOptions: {
-                            strokeColor: color,
-                            strokeOpacity: 0.8,
-                            strokeWeight: 5,
-                            zIndex: 200
-                        },
-                    });
-                    directionsRenderer.setMap(map);
-
-                    directionsService.route({
-                        origin: { lat: userLat, lng: userLng },
-                        destination: { lat: driverLat, lng: driverLng },
-                        travelMode: google.maps.TravelMode.DRIVING,
-                    }, (response, status) => {
-                        if (status === "OK") {
-                            directionsRenderer.setDirections(response);
-                        } else {
-                            console.warn(`Directions request failed for user ${user.user_id}:`, status);
-                            // Fallback to straight line if directions fail
-                            const fallbackLine = new google.maps.Polyline({
-                                path: [
-                                    { lat: userLat, lng: userLng },
-                                    { lat: driverLat, lng: driverLng }
-                                ],
-                                geodesic: true,
-                                strokeColor: color,
-                                strokeOpacity: 0.4,
-                                strokeWeight: 2,
-                                zIndex: 100
-                            });
-                            fallbackLine.setMap(map);
-                            routeRenderers.push({ renderer: null, polyline: fallbackLine });
-                        }
-                    });
-
-                    routeRenderers.push({ renderer: directionsRenderer, polyline: null });
-                }
             });
+
+            // Create sequential route for this driver after processing all users
+            if (displayState.routeLines && route.assigned_users.length > 0) {
+                createSequentialRoute(route, color, index);
+            }
 
             // Create optimal path if enabled
             if (displayState.optimalPaths) {
@@ -1404,6 +1364,124 @@
             return new google.maps.InfoWindow({ content });
         }
 
+        function createSequentialRoute(route, color, routeIndex) {
+            if (route.assigned_users.length === 0) return;
+
+            // Create waypoints array starting from driver
+            const waypoints = [];
+
+            // Add all user locations as waypoints
+            route.assigned_users.forEach(user => {
+                waypoints.push({
+                    location: { lat: parseFloat(user.lat), lng: parseFloat(user.lng) },
+                    stopover: true
+                });
+            });
+
+            // Create directions request: Driver -> Users -> Office
+            const directionsRenderer = new google.maps.DirectionsRenderer({
+                suppressMarkers: true,
+                preserveViewport: true,
+                polylineOptions: {
+                    strokeColor: color,
+                    strokeOpacity: 0.8,
+                    strokeWeight: 6,
+                    zIndex: 300
+                },
+            });
+            directionsRenderer.setMap(map);
+
+            // Build the sequential route
+            const request = {
+                origin: { lat: parseFloat(route.latitude), lng: parseFloat(route.longitude) },
+                destination: OFFICE_LOCATION, // End at office
+                waypoints: waypoints,
+                optimizeWaypoints: true, // Let Google optimize the order
+                travelMode: google.maps.TravelMode.DRIVING,
+                avoidHighways: false,
+                avoidTolls: false
+            };
+
+            directionsService.route(request, (response, status) => {
+                if (status === "OK") {
+                    directionsRenderer.setDirections(response);
+
+                    // Add route markers to show sequence
+                    const legs = response.routes[0].legs;
+                    legs.forEach((leg, legIndex) => {
+                        if (legIndex < legs.length) {
+                            // Add sequence number markers at each stop
+                            const sequenceMarker = new google.maps.Marker({
+                                position: leg.start_location,
+                                map: map,
+                                icon: {
+                                    url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(`
+                                        <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                            <circle cx="12" cy="12" r="10" fill="${color}" stroke="#ffffff" stroke-width="2"/>
+                                            <text x="12" y="16" font-family="Arial" font-size="12" text-anchor="middle" fill="white" font-weight="bold">${legIndex + 1}</text>
+                                        </svg>
+                                    `),
+                                    scaledSize: new google.maps.Size(24, 24),
+                                    anchor: new google.maps.Point(12, 12)
+                                },
+                                title: `Stop ${legIndex + 1} in Route ${routeIndex + 1}`,
+                                zIndex: 400
+                            });
+
+                            markers.routes.push(sequenceMarker);
+                        }
+                    });
+
+                    console.log(`✅ Sequential route created for Driver ${route.driver_id} with ${route.assigned_users.length} stops`);
+                } else {
+                    console.warn(`Sequential route failed for Driver ${route.driver_id}:`, status);
+                    // Fallback to straight lines if directions fail
+                    createFallbackSequentialRoute(route, color);
+                }
+            });
+
+            routeRenderers.push({ renderer: directionsRenderer, polyline: null });
+        }
+
+        function createFallbackSequentialRoute(route, color) {
+            // Create simple polyline route as fallback
+            const routePath = [
+                { lat: parseFloat(route.latitude), lng: parseFloat(route.longitude) } // Start at driver
+            ];
+
+            // Add all user locations
+            route.assigned_users.forEach(user => {
+                routePath.push({ lat: parseFloat(user.lat), lng: parseFloat(user.lng) });
+            });
+
+            // End at office
+            routePath.push(OFFICE_LOCATION);
+
+            const fallbackRoute = new google.maps.Polyline({
+                path: routePath,
+                geodesic: true,
+                strokeColor: color,
+                strokeOpacity: 0.7,
+                strokeWeight: 4,
+                zIndex: 250,
+                icons: [{
+                    icon: {
+                        path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
+                        scale: 3,
+                        fillColor: color,
+                        fillOpacity: 1,
+                        strokeColor: '#ffffff',
+                        strokeWeight: 1
+                    },
+                    offset: '100%',
+                    repeat: '30px'
+                }]
+            });
+
+            fallbackRoute.setMap(map);
+            routeRenderers.push({ renderer: null, polyline: fallbackRoute });
+        }
+
         function createOptimalPath(route, color) {
             if (route.assigned_users.length < 2) return;
 
@@ -1440,6 +1518,9 @@
                 path.push(nearest);
                 remaining.splice(nearestIndex, 1);
             }
+
+            // Add office as final destination
+            path.push({ lat: OFFICE_LOCATION.lat, lng: OFFICE_LOCATION.lng, type: 'office' });
 
             const optimalPath = new google.maps.Polyline({
                 path: path.map(p => ({ lat: p.lat, lng: p.lng })),
@@ -1671,24 +1752,30 @@
 
         function clearMap() {
             // Clear all markers except office
-            [...markers.drivers, ...markers.users].forEach(item => {
-                item.marker.setMap(null);
-                if (item.infoWindow) item.infoWindow.close();
+            [...markers.drivers, ...markers.users, ...markers.routes].forEach(item => {
+                if (item.marker) {
+                    item.marker.setMap(null);
+                    if (item.infoWindow) item.infoWindow.close();
+                } else {
+                    // Handle sequence markers
+                    item.setMap(null);
+                }
             });
-            
+
             // Clear route renderers and polylines
             routeRenderers.forEach(item => {
                 if (item.renderer) item.renderer.setMap(null);
                 if (item.polyline) item.polyline.setMap(null);
             });
             optimalPaths.forEach(path => path.setMap(null));
-            
+
             // Clear heatmap
             if (heatmap) heatmap.setMap(null);
-            
+
             // Reset arrays
             markers.drivers = [];
             markers.users = [];
+            markers.routes = [];
             routeRenderers = [];
             optimalPaths = [];
             heatmap = null;
@@ -1750,22 +1837,31 @@
         function handleSearch() {
             const query = document.getElementById("searchInput").value.toLowerCase();
             if (!query) {
-                loadRouteData();
+                loadRouteData(); // Reload all data if search is cleared
                 return;
             }
 
-            const filtered = allRoutes.filter(route =>
-                route.driver_id.toLowerCase().includes(query) ||
-                route.vehicle_id.toLowerCase().includes(query) ||
-                route.assigned_users.some(user => 
-                    user.user_id.toLowerCase().includes(query) ||
-                    (user.first_name && user.first_name.toLowerCase().includes(query)) ||
-                    (user.email && user.email.toLowerCase().includes(query))
-                )
-            );
-
-            allRoutes = filtered;
-            renderMap();
+            // Reload original data to filter from
+            fetch(API_URL)
+                .then(res => res.json())
+                .then(routes => {
+                    const filtered = routes.filter(route =>
+                        route.driver_id.toLowerCase().includes(query) ||
+                        route.vehicle_id.toLowerCase().includes(query) ||
+                        route.assigned_users.some(user => 
+                            user.user_id.toLowerCase().includes(query) ||
+                            (user.first_name && user.first_name.toLowerCase().includes(query)) ||
+                            (user.email && user.email.toLowerCase().includes(query))
+                        )
+                    );
+                    allRoutes = filtered;
+                    renderMap();
+                    updateStats(); // Update stats based on filtered data
+                })
+                .catch(error => {
+                    console.error('Error reloading data for search:', error);
+                    showAlert('error', 'Failed to refresh data for search.');
+                });
         }
 
         function filterCluster() {
@@ -1773,24 +1869,46 @@
             if (selectedValue === "all") {
                 loadRouteData(); // Reload all data
             } else {
-                const originalRoutes = [...allRoutes];
-                allRoutes = [originalRoutes[parseInt(selectedValue)]];
-                renderMap();
+                // Reload original data to ensure we have the correct route
+                fetch(API_URL)
+                    .then(res => res.json())
+                    .then(routes => {
+                        if (routes && routes[parseInt(selectedValue)]) {
+                            allRoutes = [routes[parseInt(selectedValue)]];
+                            renderMap();
+                            updateStats(); // Update stats for the single route
+                        } else {
+                            showAlert('error', 'Selected route not found.');
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error reloading data for cluster filter:', error);
+                        showAlert('error', 'Failed to refresh data for filtering.');
+                    });
             } 
         }
 
         function filterByUtilization() {
-            const minUtilization = parseInt(document.getElementById("utilizationRange").value) / 100;
-            document.getElementById("utilizationValue").textContent = `${Math.round(minUtilization * 100)}%`;
+            const minUtilizationPercent = parseInt(document.getElementById("utilizationRange").value);
+            const minUtilization = minUtilizationPercent / 100;
+            document.getElementById("utilizationValue").textContent = `${minUtilizationPercent}%`;
             
-            const filtered = allRoutes.filter(route => {
-                const utilization = route.assigned_users.length / route.vehicle_type;
-                return utilization >= minUtilization;
-            });
-            
-            const originalRoutes = [...allRoutes];
-            allRoutes = filtered;
-            renderMap();
+            // Reload original data to filter from
+            fetch(API_URL)
+                .then(res => res.json())
+                .then(routes => {
+                    const filtered = routes.filter(route => {
+                        const utilization = route.assigned_users.length / route.vehicle_type;
+                        return utilization >= minUtilization;
+                    });
+                    allRoutes = filtered;
+                    renderMap();
+                    updateStats(); // Update stats based on filtered data
+                })
+                .catch(error => {
+                    console.error('Error reloading data for utilization filter:', error);
+                    showAlert('error', 'Failed to refresh data for filtering.');
+                });
         }
 
         function highlightRoute(index) {
@@ -1798,50 +1916,69 @@
             document.querySelectorAll('.cluster-color').forEach(el => el.classList.remove('active'));
             
             // Highlight selected
-            document.querySelectorAll('.cluster-color')[index].classList.add('active');
+            const highlightedElement = document.querySelector(`.cluster-color:nth-child(${index + 1})`);
+            if (highlightedElement) {
+                highlightedElement.classList.add('active');
+            }
             
             // Filter to show only this route
-            loadRouteData().then(() => {
-                allRoutes = [allRoutes[index]];
-                renderMap();
-                
-                // Focus map on this route
-                const route = allRoutes[0];
-                if (route.assigned_users.length > 0) {
-                    const bounds = new google.maps.LatLngBounds();
-                    bounds.extend(new google.maps.LatLng(parseFloat(route.latitude), parseFloat(route.longitude)));
-                    route.assigned_users.forEach(user => {
-                        bounds.extend(new google.maps.LatLng(parseFloat(user.lat), parseFloat(user.lng)));
-                    });
-                    map.fitBounds(bounds);
-                }
-            });
+            fetch(API_URL)
+                .then(res => res.json())
+                .then(routes => {
+                    if (routes && routes[index]) {
+                        allRoutes = [routes[index]];
+                        renderMap();
+                        updateStats(); // Update stats for the single route
+                        
+                        // Focus map on this route
+                        const route = allRoutes[0];
+                        if (route.assigned_users.length > 0) {
+                            const bounds = new google.maps.LatLngBounds();
+                            bounds.extend(new google.maps.LatLng(parseFloat(route.latitude), parseFloat(route.longitude)));
+                            route.assigned_users.forEach(user => {
+                                bounds.extend(new google.maps.LatLng(parseFloat(user.lat), parseFloat(user.lng)));
+                            });
+                            map.fitBounds(bounds);
+                        }
+                    } else {
+                        showAlert('error', 'Selected route not found.');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error reloading data for highlighting:', error);
+                    showAlert('error', 'Failed to refresh data for highlighting.');
+                });
         }
 
         // Toggle Functions
         function toggleUsers() {
             displayState.users = !displayState.users;
             renderMap();
+            updateDisplayButtons();
         }
 
         function toggleDrivers() {
             displayState.drivers = !displayState.drivers;
             renderMap();
+            updateDisplayButtons();
         }
 
         function toggleRouteLines() {
             displayState.routeLines = !displayState.routeLines;
             renderMap();
+            updateDisplayButtons();
         }
 
         function toggleHeatmap() {
             displayState.heatmap = !displayState.heatmap;
             renderMap();
+            updateDisplayButtons();
         }
 
         function showOptimalPaths() {
             displayState.optimalPaths = !displayState.optimalPaths;
             renderMap();
+            updateDisplayButtons();
         }
 
         function updateDisplayButtons() {
@@ -1855,14 +1992,12 @@
 
             buttons.forEach(({ id, state }) => {
                 const btn = document.getElementById(id);
-                if (state) {
-                    btn.style.background = 'var(--primary-500)';
-                    btn.style.color = 'white';
-                    btn.style.borderColor = 'var(--primary-500)';
-                } else {
-                    btn.style.background = 'var(--surface-gray)';
-                    btn.style.color = 'var(--gray-700)';
-                    btn.style.borderColor = 'var(--gray-200)';
+                if (btn) {
+                    if (state) {
+                        btn.classList.add('active');
+                    } else {
+                        btn.classList.remove('active');
+                    }
                 }
             });
         }
@@ -1909,6 +2044,11 @@
                 driver_lng: route.longitude
             }));
 
+            if (csvData.length === 0) {
+                showAlert('warning', 'No data available to export.');
+                return;
+            }
+
             const csv = [
                 Object.keys(csvData[0]).join(','),
                 ...csvData.map(row => Object.values(row).join(','))
@@ -1933,7 +2073,7 @@
                     total_routes: allRoutes.length,
                     total_users: allRoutes.reduce((sum, r) => sum + r.assigned_users.length, 0),
                     total_capacity: allRoutes.reduce((sum, r) => sum + r.vehicle_type, 0),
-                    average_utilization: (allRoutes.reduce((sum, r) => sum + (r.assigned_users.length / r.vehicle_type), 0) / allRoutes.length * 100).toFixed(2),
+                    average_utilization: allRoutes.length > 0 ? (allRoutes.reduce((sum, r) => sum + (r.assigned_users.length / r.vehicle_type), 0) / allRoutes.length * 100).toFixed(2) : 0,
                     efficiency_score: calculateEfficiencyScore(allRoutes).toFixed(2)
                 },
                 route_details: allRoutes.map((route, index) => ({
@@ -1957,6 +2097,11 @@
                 }))
             };
 
+            if (allRoutes.length === 0) {
+                showAlert('warning', 'No data available to generate report.');
+                return;
+            }
+
             const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
             const url = window.URL.createObjectURL(blob);
             const link = document.createElement('a');
@@ -1970,16 +2115,17 @@
 
         function exportMapImage() {
             // Note: This would require html2canvas library for actual implementation
-            showAlert('warning', 'Map capture feature requires additional library setup. Use browser screenshot for now.');
+            // For now, instructing the user to use browser's screenshot feature.
+            showAlert('warning', 'Map capture feature requires external libraries. Please use your browser\'s screenshot tool.');
         }
 
         // Initialize when DOM is loaded
         document.addEventListener('DOMContentLoaded', function() {
-            // Any additional initialization code
+            // Any additional initialization code can go here if needed
         });
     </script>
 
     <!-- Google Maps API with visualization library -->
-    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAjESclgKTCpmdmHKc7bzCKIQtYe_vIbb4&libraries=places&callback=initMap&libraries=places" async defer></script>
+    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAjESclgKTCpmdmHKc7bzCKIQtYe_vIbb4&libraries=places,visualization&callback=initMap&libraries=places" async defer></script>
 </body>
 </html>

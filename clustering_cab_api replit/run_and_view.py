@@ -5,11 +5,11 @@ import webbrowser
 import sys
 from assignment import run_assignment, analyze_assignment_quality
 
-SOURCE_ID = "UC_unify_test"  # <-- Replace with your real source_id
+SOURCE_ID = "UC_logisticllp"  # <-- Replace with your real source_id
 PARAMETER = 1  # Example numerical parameter
-STRING_PARAM = "Morning%20shift" # Example string parameter
+STRING_PARAM = "Evening%20shift" # Example string parameter
 
-def start_fastapi():
+def start_fastapi(): 
     subprocess.run(["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "5000", "--reload"])
 
 def launch_browser():

@@ -1,84 +1,274 @@
 [
   {
-    "driver_id": "225427",
-    "vehicle_id": "15467",
-    "vehicle_type": 2,
-    "latitude": 30.6727404,
-    "longitude": 76.7206652,
+    "driver_id": "2533",
+    "vehicle_id": "28",
+    "vehicle_type": 7,
+    "latitude": 30.7498676,
+    "longitude": 76.6411094,
     "assigned_users": [
       {
-        "user_id": "225423",
-        "lat": 30.7217456,
-        "lng": 76.8333971,
-        "office_distance": 13.983,
-        "first_name": "Komal",
-        "email": "Komal@yopmail.com"
+        "user_id": "2457",
+        "lat": 30.7505972,
+        "lng": 76.6312165,
+        "office_distance": 10.194,
+        "first_name": "Abhishek",
+        "email": "avi@unifylogisticsolutions.com"
       },
       {
-        "user_id": "225424",
-        "lat": 30.6944908,
-        "lng": 76.6650946,
-        "office_distance": 8.275,
-        "first_name": "Shweta",
-        "email": "Mishra@yopmail.com"
+        "user_id": "2473",
+        "lat": 30.7442252,
+        "lng": 76.6614863,
+        "office_distance": 6.946,
+        "first_name": "Anmol Sharma",
+        "email": "Anmol@dummy.com"
+      },
+      {
+        "user_id": "2483",
+        "lat": 30.7498676,
+        "lng": 76.6411094,
+        "office_distance": 5.591,
+        "first_name": "Chumphila Bhutia",
+        "email": "Chum.taylor@unifylogisticsolutions.com"
+      },
+      {
+        "user_id": "2484",
+        "lat": 30.7395761,
+        "lng": 76.6466769,
+        "office_distance": 9.884,
+        "first_name": "Ashray Amrate",
+        "email": "logan@unifylogisticsolutions.com"
+      },
+      {
+        "user_id": "2587",
+        "lat": 30.7678352,
+        "lng": 76.6302656,
+        "office_distance": 12.804,
+        "first_name": "Riya",
+        "email": "riyachauhan@gmail.com"
+      },
+      {
+        "user_id": "2592",
+        "lat": 30.7461367,
+        "lng": 76.6391288,
+        "office_distance": 9.147,
+        "first_name": "Pankaj",
+        "email": "pankaj@gmail.com"
       }
     ],
     "centroid": [
-      30.7081182,
-      76.74924585
+      30.749706333333336,
+      76.64164725
     ],
-    "utilization": 1.0,
+    "utilization": 0.8571428571428571,
     "stops": [
       [
-        30.7217456,
-        76.8333971
+        30.7505972,
+        76.6312165
       ],
       [
-        30.6944908,
-        76.6650946
+        30.7442252,
+        76.6614863
+      ],
+      [
+        30.7498676,
+        76.6411094
+      ],
+      [
+        30.7395761,
+        76.6466769
+      ],
+      [
+        30.7678352,
+        76.6302656
+      ],
+      [
+        30.7461367,
+        76.6391288
       ]
     ],
-    "bearing": 217.26583379153868
+    "bearing": 139.6743077772457
   },
   {
-    "driver_id": "225435",
-    "vehicle_id": "15475",
-    "vehicle_type": 4,
-    "latitude": 30.7252649,
-    "longitude": 76.6509078,
+    "driver_id": "2574",
+    "vehicle_id": "38",
+    "vehicle_type": 7,
+    "latitude": 30.7333148,
+    "longitude": 76.7794179,
     "assigned_users": [
       {
-        "user_id": "225422",
-        "lat": 30.7263392,
-        "lng": 76.6522883,
-        "office_distance": 12.122,
-        "first_name": "Chetan",
-        "email": "Chetan@yopmail.com"
+        "user_id": "2383",
+        "lat": 30.7102616,
+        "lng": 76.7214608,
+        "office_distance": 5.147,
+        "first_name": "Priyanka Bhatia",
+        "email": "grace.wilson@unifylogisticsolutions.com"
       },
       {
-        "user_id": "225425",
-        "lat": 30.7564459,
-        "lng": 76.6554135,
-        "office_distance": 12.046,
-        "first_name": "Ritika",
-        "email": "Ritika@yopmail.com"
+        "user_id": "2391",
+        "lat": 30.6711366,
+        "lng": 76.7215556,
+        "office_distance": 5.26,
+        "first_name": "Kirandeep Kaur",
+        "email": "test@gmail.com"
+      },
+      {
+        "user_id": "2467",
+        "lat": 30.7069528,
+        "lng": 76.7529498,
+        "office_distance": 9.543,
+        "first_name": "Hridesh Kumar",
+        "email": "matt@unifylogisticsolutions.com"
+      },
+      {
+        "user_id": "2474",
+        "lat": 30.6364521,
+        "lng": 76.8155946,
+        "office_distance": 19.35,
+        "first_name": "Jaspal Singh Takkar",
+        "email": "jas@unifylogisticsolutions.com"
+      },
+      {
+        "user_id": "2604",
+        "lat": 30.7168089,
+        "lng": 76.7786791,
+        "office_distance": 12.465,
+        "first_name": "Aadi",
+        "email": "Aadisharma@gmail.com"
+      },
+      {
+        "user_id": "2605",
+        "lat": 30.7106641,
+        "lng": 76.7542394,
+        "office_distance": 9.495,
+        "first_name": "inderpreet",
+        "email": "inderpreetkaur@gmail.com"
       }
     ],
     "centroid": [
-      30.74139255,
-      76.6538509
+      30.692046016666666,
+      76.75741321666666
     ],
-    "utilization": 0.5,
+    "utilization": 0.8571428571428571,
     "stops": [
       [
-        30.7263392,
-        76.6522883
+        30.7102616,
+        76.7214608
       ],
       [
-        30.7564459,
-        76.6554135
+        30.6711366,
+        76.7215556
+      ],
+      [
+        30.7069528,
+        76.7529498
+      ],
+      [
+        30.6364521,
+        76.8155946
+      ],
+      [
+        30.7168089,
+        76.7786791
+      ],
+      [
+        30.7106641,
+        76.7542394
       ]
     ],
-    "bearing": 133.97055718042583
+    "bearing": 282.755577091086
+  },
+  {
+    "driver_id": "2538",
+    "vehicle_id": "33",
+    "vehicle_type": 5,
+    "latitude": 30.7498676,
+    "longitude": 76.6411094,
+    "assigned_users": [
+      {
+        "user_id": "2481",
+        "lat": 30.7066882,
+        "lng": 76.6543566,
+        "office_distance": 4.202,
+        "first_name": "Vikas Kumar Thakur",
+        "email": "viky@unifylogisticsolutions.com"
+      },
+      {
+        "user_id": "2482",
+        "lat": 30.7066882,
+        "lng": 76.6543566,
+        "office_distance": 4.425,
+        "first_name": "Nandini Verma",
+        "email": "naya.williams@unifylogisticsolutions.com"
+      },
+      {
+        "user_id": "2589",
+        "lat": 30.7319649,
+        "lng": 76.6640944,
+        "office_distance": 7.527,
+        "first_name": "Jagjeet",
+        "email": "jagjeetkaur@gmail.com"
+      }
+    ],
+    "centroid": [
+      30.715113766666665,
+      76.65760253333333
+    ],
+    "utilization": 0.6,
+    "stops": [
+      [
+        30.7066882,
+        76.6543566
+      ],
+      [
+        30.7066882,
+        76.6543566
+      ],
+      [
+        30.7319649,
+        76.6640944
+      ]
+    ],
+    "bearing": 111.00767470802435
+  },
+  {
+    "driver_id": "2537",
+    "vehicle_id": "32",
+    "vehicle_type": 7,
+    "latitude": 30.6942091,
+    "longitude": 76.860565,
+    "assigned_users": [
+      {
+        "user_id": "2475",
+        "lat": 30.7320213,
+        "lng": 76.6911172,
+        "office_distance": 5.004,
+        "first_name": "Krish Raj",
+        "email": "Krish@unifylogisticsolutions.com"
+      },
+      {
+        "user_id": "2588",
+        "lat": 30.7333213,
+        "lng": 76.6951525,
+        "office_distance": 4.652,
+        "first_name": "Om",
+        "email": "OmSahu@gmail.com"
+      }
+    ],
+    "centroid": [
+      30.7326713,
+      76.69313485
+    ],
+    "utilization": 0.2857142857142857,
+    "stops": [
+      [
+        30.7320213,
+        76.6911172
+      ],
+      [
+        30.7333213,
+        76.6951525
+      ]
+    ],
+    "bearing": 195.50757841134407
   }
 ]
