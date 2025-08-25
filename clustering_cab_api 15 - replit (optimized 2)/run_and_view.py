@@ -89,8 +89,12 @@ def display_detailed_analytics(result):
         # Calculate route distance metrics
         route_distances = []
         for user in route["assigned_users"]:
+            # Handle different possible key names for user coordinates
+            user_lat = user.get("lat", user.get("latitude", user.get("user_lat", 0)))
+            user_lng = user.get("lng", user.get("longitude", user.get("user_lng", 0)))
+            
             dist = haversine_distance(float(route["latitude"]), float(route["longitude"]),
-                                    float(user["lat"]), float(user["lng"]))
+                                    float(user_lat), float(user_lng))
             route_distances.append(dist)
 
         avg_route_distance = sum(route_distances) / len(route_distances) if route_distances else 0
@@ -278,10 +282,13 @@ def display_detailed_analytics(result):
     if unassigned_users:
         print(f"\n⚠️  UNASSIGNED USERS REQUIRING ATTENTION")
         print("─" * 50)
-        for i, user in enumerate(unassigned_users[:5]):  # Show first 5
-            office_dist = user.get('office_distance', 'N/A')
-            print(f"   {i+1}. User {user['user_id']}: Location ({user.get('lat', 'N/A')}, {user.get('lng', 'N/A')}) | "
-                  f"Office Distance: {office_dist} km")
+        for user in unassigned_users:
+            user_id = user.get("user_id", user.get("id", "N/A"))
+            # Handle different possible key names for coordinates
+            lat = user.get("lat", user.get("latitude", user.get("user_lat", 0)))
+            lng = user.get("lng", user.get("longitude", user.get("user_lng", 0)))
+            office_dist = user.get('office_distance', user.get('distance_to_office', 'N/A'))
+            print(f"   User {user_id}: Location ({lat}, {lng}) | Office Distance: {office_dist} km")
         if len(unassigned_users) > 5:
             print(f"   ... and {len(unassigned_users) - 5} more users need manual assignment")
 
