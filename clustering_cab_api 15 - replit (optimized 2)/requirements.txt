@@ -11,3 +11,7 @@ scikit-learn
 
 # for loading api in code
 python-dotenv
+
+osmnx
+geopandas
+shapely
