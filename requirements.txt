@@ -1,0 +1,17 @@
+fastapi
+uvicorn
+pandas
+numpy
+scikit-learn
+scipy
+requests
+python-dotenv
+numba
+pydantic
+python-multipart
+osmnx
+geopandas
+networkx
+shapely
+pyvrp
+pickle-mixin
