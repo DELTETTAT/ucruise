@@ -883,7 +883,7 @@
                     <div class="legend-icon" style="background: linear-gradient(45deg, #f59e0b, #d97706);">
                         🛣️
                     </div>
-                    <span>User Pickup Sequence (Driver follows this route)</span>
+                    <span>Sequential Routes (Driver → Users → Office)</span>
                 </div>
                 <div class="cluster-palette" id="clusterPalette"></div>
             </div>
@@ -1367,47 +1367,36 @@
         function createSequentialRoute(route, color, routeIndex) {
             if (route.assigned_users.length === 0) return;
 
-            // Create route showing the sequence users will be picked up in (driver follows this path)
+            // Create waypoints array starting from driver
             const waypoints = [];
 
-            // Sort users by pickup order if available, otherwise by distance from driver
-            const sortedUsers = route.assigned_users.sort((a, b) => {
-                if (a.pickup_order && b.pickup_order) {
-                    return a.pickup_order - b.pickup_order;
-                }
-                // Fallback to distance from driver
-                const distA = haversineDistance(route.latitude, route.longitude, a.lat, a.lng);
-                const distB = haversineDistance(route.latitude, route.longitude, b.lat, b.lng);
-                return distA - distB;
-            });
-
-            // Add users as waypoints (except the first one which will be origin)
-            for (let i = 1; i < sortedUsers.length; i++) {
+            // Add all user locations as waypoints
+            route.assigned_users.forEach(user => {
                 waypoints.push({
-                    location: { lat: parseFloat(sortedUsers[i].lat), lng: parseFloat(sortedUsers[i].lng) },
+                    location: { lat: parseFloat(user.lat), lng: parseFloat(user.lng) },
                     stopover: true
                 });
-            }
+            });
 
-            // Create directions request: First User -> Other Users -> Office
+            // Create directions request: Driver -> Users -> Office
             const directionsRenderer = new google.maps.DirectionsRenderer({
                 suppressMarkers: true,
                 preserveViewport: true,
                 polylineOptions: {
                     strokeColor: color,
-                    strokeOpacity: 0.9,
-                    strokeWeight: 8,
+                    strokeOpacity: 0.8,
+                    strokeWeight: 6,
                     zIndex: 300
                 },
             });
             directionsRenderer.setMap(map);
 
-            // Build the user pickup route (not including driver's initial travel)
+            // Build the sequential route
             const request = {
-                origin: { lat: parseFloat(sortedUsers[0].lat), lng: parseFloat(sortedUsers[0].lng) }, // Start from first user
+                origin: { lat: parseFloat(route.latitude), lng: parseFloat(route.longitude) },
                 destination: OFFICE_LOCATION, // End at office
-                waypoints: waypoints, // Other users
-                optimizeWaypoints: false, // Keep the order we determined
+                waypoints: waypoints,
+                optimizeWaypoints: true, // Let Google optimize the order
                 travelMode: google.maps.TravelMode.DRIVING,
                 avoidHighways: false,
                 avoidTolls: false
@@ -1417,45 +1406,51 @@
                 if (status === "OK") {
                     directionsRenderer.setDirections(response);
 
-                    // Add pickup sequence markers
-                    sortedUsers.forEach((user, index) => {
-                        const sequenceMarker = new google.maps.Marker({
-                            position: { lat: parseFloat(user.lat), lng: parseFloat(user.lng) },
-                            map: map,
-                            icon: {
-                                url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(`
-                                    <svg width="28" height="28" viewBox="0 0 28 28" xmlns="http://www.w3.org/2000/svg">
-                                        <circle cx="14" cy="14" r="12" fill="${color}" stroke="#ffffff" stroke-width="3"/>
-                                        <text x="14" y="18" font-family="Arial" font-size="10" text-anchor="middle" fill="white" font-weight="bold">${index + 1}</text>
-                                    </svg>
-                                `),
-                                scaledSize: new google.maps.Size(28, 28),
-                                anchor: new google.maps.Point(14, 14)
-                            },
-                            title: `Pickup #${index + 1}: User ${user.user_id}`,
-                            zIndex: 500
-                        });
+                    // Add route markers to show sequence
+                    const legs = response.routes[0].legs;
+                    legs.forEach((leg, legIndex) => {
+                        if (legIndex < legs.length) {
+                            // Add sequence number markers at each stop
+                            const sequenceMarker = new google.maps.Marker({
+                                position: leg.start_location,
+                                map: map,
+                                icon: {
+                                    url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(`
+                                        <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                            <circle cx="12" cy="12" r="10" fill="${color}" stroke="#ffffff" stroke-width="2"/>
+                                            <text x="12" y="16" font-family="Arial" font-size="12" text-anchor="middle" fill="white" font-weight="bold">${legIndex + 1}</text>
+                                        </svg>
+                                    `),
+                                    scaledSize: new google.maps.Size(24, 24),
+                                    anchor: new google.maps.Point(12, 12)
+                                },
+                                title: `Stop ${legIndex + 1} in Route ${routeIndex + 1}`,
+                                zIndex: 400
+                            });
 
-                        markers.routes.push(sequenceMarker);
+                            markers.routes.push(sequenceMarker);
+                        }
                     });
 
-                    console.log(`✅ User pickup route created for Driver ${route.driver_id} with ${sortedUsers.length} pickups`);
+                    console.log(`✅ Sequential route created for Driver ${route.driver_id} with ${route.assigned_users.length} stops`);
                 } else {
-                    console.warn(`User pickup route failed for Driver ${route.driver_id}:`, status);
-                    // Fallback to connecting users with straight lines
-                    createFallbackUserRoute(route, color, sortedUsers);
+                    console.warn(`Sequential route failed for Driver ${route.driver_id}:`, status);
+                    // Fallback to straight lines if directions fail
+                    createFallbackSequentialRoute(route, color);
                 }
             });
 
             routeRenderers.push({ renderer: directionsRenderer, polyline: null });
         }
 
-        function createFallbackUserRoute(route, color, sortedUsers) {
-            // Create simple polyline connecting users only
-            const routePath = [];
+        function createFallbackSequentialRoute(route, color) {
+            // Create simple polyline route as fallback
+            const routePath = [
+                { lat: parseFloat(route.latitude), lng: parseFloat(route.longitude) } // Start at driver
+            ];
 
-            // Add all user locations in order
-            sortedUsers.forEach(user => {
+            // Add all user locations
+            route.assigned_users.forEach(user => {
                 routePath.push({ lat: parseFloat(user.lat), lng: parseFloat(user.lng) });
             });
 
@@ -1466,48 +1461,90 @@
                 path: routePath,
                 geodesic: true,
                 strokeColor: color,
-                strokeOpacity: 0.8,
-                strokeWeight: 6,
+                strokeOpacity: 0.7,
+                strokeWeight: 4,
                 zIndex: 250,
                 icons: [{
                     icon: {
                         path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
-                        scale: 4,
+                        scale: 3,
                         fillColor: color,
                         fillOpacity: 1,
                         strokeColor: '#ffffff',
                         strokeWeight: 1
                     },
                     offset: '100%',
-                    repeat: '40px'
+                    repeat: '30px'
                 }]
             });
 
             fallbackRoute.setMap(map);
+            routeRenderers.push({ renderer: null, polyline: fallbackRoute });
+        }
 
-            // Add pickup sequence markers for fallback
-            sortedUsers.forEach((user, index) => {
-                const sequenceMarker = new google.maps.Marker({
-                    position: { lat: parseFloat(user.lat), lng: parseFloat(user.lng) },
-                    map: map,
+        function createOptimalPath(route, color) {
+            if (route.assigned_users.length < 2) return;
+
+            // Create TSP-like optimal path through all users
+            const points = [
+                { lat: parseFloat(route.latitude), lng: parseFloat(route.longitude), type: 'driver' },
+                ...route.assigned_users.map(user => ({
+                    lat: parseFloat(user.lat),
+                    lng: parseFloat(user.lng),
+                    type: 'user',
+                    id: user.user_id
+                }))
+            ];
+
+            // Simple nearest neighbor algorithm for demonstration
+            const path = [points[0]]; // Start with driver
+            const remaining = points.slice(1);
+
+            while (remaining.length > 0) {
+                const current = path[path.length - 1];
+                let nearest = remaining[0];
+                let nearestIndex = 0;
+                let minDistance = haversineDistance(current.lat, current.lng, nearest.lat, nearest.lng);
+
+                for (let i = 1; i < remaining.length; i++) {
+                    const distance = haversineDistance(current.lat, current.lng, remaining[i].lat, remaining[i].lng);
+                    if (distance < minDistance) {
+                        minDistance = distance;
+                        nearest = remaining[i];
+                        nearestIndex = i;
+                    }
+                }
+
+                path.push(nearest);
+                remaining.splice(nearestIndex, 1);
+            }
+
+            // Add office as final destination
+            path.push({ lat: OFFICE_LOCATION.lat, lng: OFFICE_LOCATION.lng, type: 'office' });
+
+            const optimalPath = new google.maps.Polyline({
+                path: path.map(p => ({ lat: p.lat, lng: p.lng })),
+                geodesic: true,
+                strokeColor: color,
+                strokeOpacity: 0.9,
+                strokeWeight: 6,
+                zIndex: 400,
+                icons: [{
                     icon: {
-                        url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(`
-                            <svg width="28" height="28" viewBox="0 0 28 28" xmlns="http://www.w3.org/2000/svg">
-                                <circle cx="14" cy="14" r="12" fill="${color}" stroke="#ffffff" stroke-width="3"/>
-                                <text x="14" y="18" font-family="Arial" font-size="10" text-anchor="middle" fill="white" font-weight="bold">${index + 1}</text>
-                            </svg>
-                        `),
-                        scaledSize: new google.maps.Size(28, 28),
-                        anchor: new google.maps.Point(14, 14)
+                        path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
+                        scale: 3,
+                        fillColor: color,
+                        fillOpacity: 1,
+                        strokeColor: '#ffffff',
+                        strokeWeight: 1
                     },
-                    title: `Pickup #${index + 1}: User ${user.user_id}`,
-                    zIndex: 500
-                });
-
-                markers.routes.push(sequenceMarker);
+                    offset: '100%',
+                    repeat: '50px'
+                }]
             });
 
-            routeRenderers.push({ renderer: null, polyline: fallbackRoute });
+            optimalPath.setMap(map);
+            optimalPaths.push(optimalPath);
         }
 
         function createHeatmap(data) {

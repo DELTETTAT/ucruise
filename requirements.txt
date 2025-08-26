@@ -1,17 +1,13 @@
+# for api purpose
 fastapi
-uvicorn
-pandas
-numpy
-scikit-learn
-scipy
 requests
+
+# for data preprocessing
+numpy
+pandas
+
+# for machine-learning
+scikit-learn
+
+# for loading api in code
 python-dotenv
-numba
-pydantic
-python-multipart
-osmnx
-geopandas
-networkx
-shapely
-pyvrp
-pickle-mixin
