@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>RouteFlow - Smart Driver Assignment Platform</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+        rel="stylesheet">
     <style>
         :root {
             /* Dark Theme Color Palette */
@@ -14,14 +16,14 @@
             --primary-700: #4338ca;
             --primary-50: #1e1b4b;
             --primary-100: #312e81;
-            
+
             --success-500: #10b981;
             --success-100: #064e3b;
             --warning-500: #f59e0b;
             --warning-100: #451a03;
             --error-500: #ef4444;
             --error-100: #450a0a;
-            
+
             --gray-50: #0f172a;
             --gray-100: #1e293b;
             --gray-200: #334155;
@@ -32,22 +34,22 @@
             --gray-700: #e2e8f0;
             --gray-800: #f1f5f9;
             --gray-900: #f8fafc;
-            
+
             --surface-white: #0f172a;
             --surface-gray: #1e293b;
-            
+
             /* Enhanced Shadows for Dark Theme */
             --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.3);
             --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.4), 0 2px 4px -2px rgb(0 0 0 / 0.4);
             --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.4), 0 4px 6px -4px rgb(0 0 0 / 0.4);
             --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.5), 0 8px 10px -6px rgb(0 0 0 / 0.5);
-            
+
             /* Radius */
             --radius-sm: 0.375rem;
             --radius-md: 0.5rem;
             --radius-lg: 0.75rem;
             --radius-xl: 1rem;
-            
+
             /* Spacing */
             --space-xs: 0.5rem;
             --space-sm: 0.75rem;
@@ -61,6 +63,11 @@
             margin: 0;
             padding: 0;
             box-sizing: border-box;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
         }
 
         body {
@@ -489,17 +496,6 @@
             margin: 0 auto var(--space-md);
         }
 
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-
-        .loading-text {
-            font-size: 14px;
-            color: var(--gray-600);
-            font-weight: 500;
-        }
-
         /* Progress Bars */
         .progress-bar {
             width: 100%;
@@ -516,9 +512,17 @@
             transition: width 0.3s ease;
         }
 
-        .progress-success { background: var(--success-500); }
-        .progress-warning { background: var(--warning-500); }
-        .progress-error { background: var(--error-500); }
+        .progress-success {
+            background: var(--success-500);
+        }
+
+        .progress-warning {
+            background: var(--warning-500);
+        }
+
+        .progress-error {
+            background: var(--error-500);
+        }
 
         /* Alerts */
         .alert {
@@ -597,11 +601,11 @@
             .app-container {
                 grid-template-columns: 320px 1fr;
             }
-            
+
             .sidebar {
                 font-size: 13px;
             }
-            
+
             .stats-grid {
                 grid-template-columns: 1fr;
             }
@@ -612,11 +616,11 @@
                 grid-template-columns: 1fr;
                 grid-template-rows: auto 1fr;
             }
-            
+
             .sidebar {
                 max-height: 50vh;
             }
-            
+
             .floating-legend,
             .route-info-popup {
                 position: relative;
@@ -643,16 +647,40 @@
         }
 
         /* Utility Classes */
-        .hidden { display: none !important; }
-        .text-center { text-align: center; }
-        .text-sm { font-size: 12px; }
-        .text-xs { font-size: 11px; }
-        .font-medium { font-weight: 500; }
-        .font-semibold { font-weight: 600; }
-        .opacity-75 { opacity: 0.75; }
-        .mb-0 { margin-bottom: 0; }
+        .hidden {
+            display: none !important;
+        }
+
+        .text-center {
+            text-align: center;
+        }
+
+        .text-sm {
+            font-size: 12px;
+        }
+
+        .text-xs {
+            font-size: 11px;
+        }
+
+        .font-medium {
+            font-weight: 500;
+        }
+
+        .font-semibold {
+            font-weight: 600;
+        }
+
+        .opacity-75 {
+            opacity: 0.75;
+        }
+
+        .mb-0 {
+            margin-bottom: 0;
+        }
     </style>
 </head>
+
 <body>
     <!-- Loading Overlay -->
     <div class="loading-overlay" id="loadingOverlay">
@@ -708,7 +736,8 @@
                     </div>
                     <div class="form-group">
                         <label class="form-label" for="searchInput">Search Routes or Users</label>
-                        <input type="text" id="searchInput" class="form-input" placeholder="Enter ID, name, or keyword..." oninput="handleSearch()">
+                        <input type="text" id="searchInput" class="form-input"
+                            placeholder="Enter ID, name, or keyword..." oninput="handleSearch()">
                     </div>
                     <div class="form-group">
                         <label class="form-label" for="clusterSelect">Route Selection</label>
@@ -720,7 +749,8 @@
                         <label class="form-label" for="utilizationRange">
                             Min Utilization: <span id="utilizationValue" class="font-semibold">0%</span>
                         </label>
-                        <input type="range" id="utilizationRange" class="range-input" min="0" max="100" value="0" oninput="filterByUtilization()">
+                        <input type="range" id="utilizationRange" class="range-input" min="0" max="100" value="0"
+                            oninput="filterByUtilization()">
                     </div>
                 </div>
 
@@ -740,7 +770,7 @@
                     </div>
                     <div class="btn-group">
                         <button class="btn btn-secondary" onclick="toggleRouteLines()" id="toggleRouteLinesBtn">
-                            <i class="fas fa-route"></i> Real Routes
+                            <i class="fas fa-route"></i> Pickup Routes
                         </button>
                         <button class="btn btn-secondary" onclick="toggleHeatmap()" id="toggleHeatmapBtn">
                             <i class="fas fa-fire"></i> Heatmap
@@ -855,7 +885,15 @@
                     </button>
                 </div>
             </div>
-            
+
+            <!-- Loading Spinner -->
+            <div id="loadingSpinner" style="display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 1000; background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(10px); padding: 30px; border-radius: 12px; box-shadow: var(--shadow-xl); border: 1px solid var(--gray-200);">
+                <div style="text-align: center;">
+                    <div class="spinner"></div>
+                    <div class="loading-text" style="color: var(--gray-600); font-weight: 500; margin-top: var(--space-md);">Loading map data...</div>
+                </div>
+            </div>
+
             <div id="map"></div>
 
             <!-- Floating Legend -->
@@ -883,7 +921,7 @@
                     <div class="legend-icon" style="background: linear-gradient(45deg, #f59e0b, #d97706);">
                         🛣️
                     </div>
-                    <span>Sequential Routes (Driver → Users → Office)</span>
+                    <span>Pickup Routes (Optional - Toggle to show)</span>
                 </div>
                 <div class="cluster-palette" id="clusterPalette"></div>
             </div>
@@ -898,8 +936,8 @@
     <script>
         // Configuration
         const API_URL = "/routes";
-        const OFFICE_LOCATION = { lat: 30.6810489, lng: 76.7260711 };
-        
+        const OFFICE_LOCATION = {lat: 30.6810489, lng: 76.7260711};
+
         // Enhanced Color Palette with Better Differentiation
         const ROUTE_COLORS = [
             '#ff6b6b', '#4ecdc4', '#45b7d1', '#96ceb4', '#feca57',
@@ -921,12 +959,17 @@
         let heatmap = null;
         let routeRenderers = [];
         let optimalPaths = [];
-        
+
+        // Google Maps specific layers
+        let routeLayer;
+        let userLayer;
+        let driverLayer;
+
         // Display States
         let displayState = {
             users: true,
             drivers: true,
-            routeLines: true,
+            routeLines: false,
             heatmap: false,
             optimalPaths: false
         };
@@ -939,90 +982,90 @@
                 styles: [
                     {
                         elementType: "geometry",
-                        stylers: [{ color: "#1e293b" }]
+                        stylers: [{color: "#1e293b"}]
                     },
                     {
                         elementType: "labels.text.stroke",
-                        stylers: [{ color: "#0f172a" }]
+                        stylers: [{color: "#0f172a"}]
                     },
                     {
                         elementType: "labels.text.fill",
-                        stylers: [{ color: "#94a3b8" }]
+                        stylers: [{color: "#94a3b8"}]
                     },
                     {
                         featureType: "administrative.locality",
                         elementType: "labels.text.fill",
-                        stylers: [{ color: "#cbd5e1" }]
+                        stylers: [{color: "#cbd5e1"}]
                     },
                     {
                         featureType: "poi",
                         elementType: "labels.text.fill",
-                        stylers: [{ color: "#64748b" }]
+                        stylers: [{color: "#64748b"}]
                     },
                     {
                         featureType: "poi.park",
                         elementType: "geometry",
-                        stylers: [{ color: "#334155" }]
+                        stylers: [{color: "#334155"}]
                     },
                     {
                         featureType: "poi.park",
                         elementType: "labels.text.fill",
-                        stylers: [{ color: "#64748b" }]
+                        stylers: [{color: "#64748b"}]
                     },
                     {
                         featureType: "road",
                         elementType: "geometry",
-                        stylers: [{ color: "#475569" }]
+                        stylers: [{color: "#475569"}]
                     },
                     {
                         featureType: "road",
                         elementType: "geometry.stroke",
-                        stylers: [{ color: "#334155" }]
+                        stylers: [{color: "#334155"}]
                     },
                     {
                         featureType: "road",
                         elementType: "labels.text.fill",
-                        stylers: [{ color: "#94a3b8" }]
+                        stylers: [{color: "#94a3b8"}]
                     },
                     {
                         featureType: "road.highway",
                         elementType: "geometry",
-                        stylers: [{ color: "#64748b" }]
+                        stylers: [{color: "#64748b"}]
                     },
                     {
                         featureType: "road.highway",
                         elementType: "geometry.stroke",
-                        stylers: [{ color: "#475569" }]
+                        stylers: [{color: "#475569"}]
                     },
                     {
                         featureType: "road.highway",
                         elementType: "labels.text.fill",
-                        stylers: [{ color: "#cbd5e1" }]
+                        stylers: [{color: "#cbd5e1"}]
                     },
                     {
                         featureType: "transit",
                         elementType: "geometry",
-                        stylers: [{ color: "#334155" }]
+                        stylers: [{color: "#334155"}]
                     },
                     {
                         featureType: "transit.station",
                         elementType: "labels.text.fill",
-                        stylers: [{ color: "#64748b" }]
+                        stylers: [{color: "#64748b"}]
                     },
                     {
                         featureType: "water",
                         elementType: "geometry",
-                        stylers: [{ color: "#0f172a" }]
+                        stylers: [{color: "#0f172a"}]
                     },
                     {
                         featureType: "water",
                         elementType: "labels.text.fill",
-                        stylers: [{ color: "#64748b" }]
+                        stylers: [{color: "#64748b"}]
                     },
                     {
                         featureType: "water",
                         elementType: "labels.text.stroke",
-                        stylers: [{ color: "#0f172a" }]
+                        stylers: [{color: "#0f172a"}]
                     }
                 ],
                 mapTypeControl: false,
@@ -1035,7 +1078,7 @@
 
             // Create office marker
             createOfficeMarker();
-            
+
             // Load route data
             loadRouteData();
         }
@@ -1082,7 +1125,7 @@
             try {
                 const response = await fetch(API_URL);
                 const routes = await response.json();
-                
+
                 if (Array.isArray(routes)) {
                     allRoutes = routes;
                     hideLoading();
@@ -1112,7 +1155,7 @@
         function populateRouteDropdown() {
             const select = document.getElementById("clusterSelect");
             select.innerHTML = '<option value="all">All Routes</option>';
-            
+
             allRoutes.forEach((route, index) => {
                 const option = document.createElement("option");
                 option.value = index;
@@ -1124,7 +1167,7 @@
         function createClusterPalette() {
             const container = document.getElementById('clusterPalette');
             container.innerHTML = '';
-            
+
             allRoutes.forEach((route, index) => {
                 const colorDiv = document.createElement('div');
                 colorDiv.className = 'cluster-color';
@@ -1138,14 +1181,14 @@
 
         function renderMap() {
             clearMap();
-            
+
             let totalUsers = 0;
             let heatmapData = [];
 
             allRoutes.forEach((route, index) => {
                 const color = ROUTE_COLORS[index % ROUTE_COLORS.length];
                 renderRoute(route, index, color);
-                
+
                 route.assigned_users.forEach(user => {
                     totalUsers++;
                     heatmapData.push(new google.maps.LatLng(parseFloat(user.lat), parseFloat(user.lng)));
@@ -1167,7 +1210,7 @@
             // Create enhanced driver marker
             if (displayState.drivers) {
                 const driverMarker = new google.maps.Marker({
-                    position: { lat: driverLat, lng: driverLng },
+                    position: {lat: driverLat, lng: driverLng},
                     map: map,
                     title: `Driver ${route.driver_id}`,
                     icon: {
@@ -1200,32 +1243,32 @@
                     showRouteInfo(route, index);
                 });
 
-                markers.drivers.push({ marker: driverMarker, infoWindow: driverInfo });
+                markers.drivers.push({marker: driverMarker, infoWindow: driverInfo});
             }
 
             // Create enhanced user markers
-            route.assigned_users.forEach((user, userIndex) => {
+            route.assigned_users.forEach(user => {
                 const userLat = parseFloat(user.lat);
                 const userLng = parseFloat(user.lng);
 
                 if (displayState.users) {
                     const userMarker = new google.maps.Marker({
-                        position: { lat: userLat, lng: userLng },
+                        position: {lat: userLat, lng: userLng},
                         map: map,
                         title: `User ${user.user_id}`,
                         icon: {
                             url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(`
                                 <svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
                                     <defs>
-                                        <linearGradient id="usergrad${index}_${userIndex}" x1="0%" y1="0%" x2="100%" y2="100%">
+                                        <linearGradient id="usergrad${index}_${user.user_id}" x1="0%" y1="0%" x2="100%" y2="100%">
                                             <stop offset="0%" style="stop-color:${color};stop-opacity:1" />
                                             <stop offset="100%" style="stop-color:${adjustBrightness(color, -20)};stop-opacity:1" />
                                         </linearGradient>
-                                        <filter id="usershadow${index}_${userIndex}">
+                                        <filter id="usershadow${index}_${user.user_id}">
                                             <feDropShadow dx="1" dy="1" stdDeviation="2" flood-opacity="0.3"/>
                                         </filter>
                                     </defs>
-                                    <circle cx="16" cy="16" r="12" fill="url(#usergrad${index}_${userIndex})" stroke="#ffffff" stroke-width="2" filter="url(#usershadow${index}_${userIndex})"/>
+                                    <circle cx="16" cy="16" r="12" fill="url(#usergrad${index}_${user.user_id})" stroke="#ffffff" stroke-width="2" filter="url(#usershadow${index}_${user.user_id})"/>
                                     <text x="16" y="20" font-family="Arial" font-size="12" text-anchor="middle" fill="white">👤</text>
                                 </svg>
                             `),
@@ -1241,7 +1284,7 @@
                         userInfo.open(map, userMarker);
                     });
 
-                    markers.users.push({ marker: userMarker, infoWindow: userInfo });
+                    markers.users.push({marker: userMarker, infoWindow: userInfo});
                 }
             });
 
@@ -1259,7 +1302,7 @@
         function createDriverInfoWindow(route, index, utilization) {
             const efficiencyRating = utilization >= 0.8 ? '🟢 Excellent' : utilization >= 0.6 ? '🟡 Good' : '🔴 Needs Improvement';
             const utilizationPercent = (utilization * 100).toFixed(1);
-            
+
             const content = `
                 <div style="font-family: Inter, sans-serif; min-width: 300px; padding: 20px; background: #0f172a; color: #f1f5f9; border-radius: 12px; border: 1px solid #334155;">
                     <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 2px solid #334155;">
@@ -1271,7 +1314,7 @@
                             <p style="margin: 0; color: #94a3b8; font-size: 13px;">Route ${index + 1}</p>
                         </div>
                     </div>
-                    
+
                     <div style="display: grid; gap: 10px; margin-bottom: 16px;">
                         <div style="display: flex; justify-content: space-between; align-items: center;">
                             <span style="color: #94a3b8; font-size: 13px;">🚙 Vehicle:</span>
@@ -1294,7 +1337,7 @@
                             <span style="font-weight: 600; color: #f1f5f9; font-size: 13px;">${efficiencyRating}</span>
                         </div>
                     </div>
-                    
+
                     <div style="background: #1e293b; border-radius: 8px; padding: 12px; margin-bottom: 12px;">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
                             <span style="font-size: 11px; color: #94a3b8;">Utilization Progress</span>
@@ -1304,14 +1347,14 @@
                             <div style="height: 100%; background: linear-gradient(90deg, #ef4444 0%, #f97316 50%, #22c55e 100%); width: ${utilizationPercent}%; transition: width 0.3s ease;"></div>
                         </div>
                     </div>
-                    
+
                     <p style="margin: 0; font-size: 11px; color: #64748b; text-align: center;">
                         Click users to see their details • Real driving routes shown
                     </p>
                 </div>
             `;
-            
-            return new google.maps.InfoWindow({ content });
+
+            return new google.maps.InfoWindow({content});
         }
 
         function createUserInfoWindow(user, route, routeIndex) {
@@ -1319,7 +1362,7 @@
                 route.latitude, route.longitude,
                 user.lat, user.lng
             );
-            
+
             const content = `
                 <div style="font-family: Inter, sans-serif; min-width: 280px; padding: 18px; background: #0f172a; color: #f1f5f9; border-radius: 12px; border: 1px solid #334155;">
                     <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid #334155;">
@@ -1331,7 +1374,7 @@
                             <p style="margin: 0; color: #94a3b8; font-size: 12px;">Route ${routeIndex + 1}</p>
                         </div>
                     </div>
-                    
+
                     <div style="display: grid; gap: 8px; margin-bottom: 14px;">
                         <div style="display: flex; justify-content: space-between;">
                             <span style="color: #94a3b8; font-size: 12px;">📛 Name:</span>
@@ -1352,7 +1395,7 @@
                         </div>
                         ` : ''}
                     </div>
-                    
+
                     <div style="background: #1e293b; padding: 12px; border-radius: 8px; text-align: center;">
                         <p style="margin: 0; font-size: 11px; color: #94a3b8;">
                             📍 ${parseFloat(user.lat).toFixed(4)}, ${parseFloat(user.lng).toFixed(4)}
@@ -1360,25 +1403,64 @@
                     </div>
                 </div>
             `;
-            
-            return new google.maps.InfoWindow({ content });
+
+            return new google.maps.InfoWindow({content});
         }
 
         function createSequentialRoute(route, color, routeIndex) {
             if (route.assigned_users.length === 0) return;
 
-            // Create waypoints array starting from driver
-            const waypoints = [];
-
-            // Add all user locations as waypoints
-            route.assigned_users.forEach(user => {
-                waypoints.push({
-                    location: { lat: parseFloat(user.lat), lng: parseFloat(user.lng) },
-                    stopover: true
+            // If only one user, just show direct line from user to office
+            if (route.assigned_users.length === 1) {
+                const userToOfficeRoute = new google.maps.Polyline({
+                    path: [
+                        {lat: parseFloat(route.assigned_users[0].lat), lng: parseFloat(route.assigned_users[0].lng)},
+                        OFFICE_LOCATION
+                    ],
+                    geodesic: true,
+                    strokeColor: color,
+                    strokeOpacity: 0.8,
+                    strokeWeight: 4,
+                    zIndex: 300,
+                    icons: [{
+                        icon: {
+                            path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
+                            scale: 3,
+                            fillColor: color,
+                            fillOpacity: 1,
+                            strokeColor: '#ffffff',
+                            strokeWeight: 1
+                        },
+                        offset: '100%'
+                    }]
                 });
+                userToOfficeRoute.setMap(map);
+                routeRenderers.push({renderer: null, polyline: userToOfficeRoute});
+                return;
+            }
+
+            // For multiple users, create route starting from first user (not driver)
+            const sortedUsers = [...route.assigned_users];
+            
+            // Sort users by distance from driver to maintain pickup order
+            const driverLat = parseFloat(route.latitude);
+            const driverLng = parseFloat(route.longitude);
+            sortedUsers.sort((a, b) => {
+                const distA = haversineDistance(driverLat, driverLng, parseFloat(a.lat), parseFloat(a.lng));
+                const distB = haversineDistance(driverLat, driverLng, parseFloat(b.lat), parseFloat(b.lng));
+                return distA - distB;
             });
 
-            // Create directions request: Driver -> Users -> Office
+            // Create waypoints from second user onwards (exclude first user as origin)
+            const waypoints = [];
+            for (let i = 1; i < sortedUsers.length; i++) {
+                waypoints.push({
+                    location: {lat: parseFloat(sortedUsers[i].lat), lng: parseFloat(sortedUsers[i].lng)},
+                    stopover: true
+                });
+            }
+
+            // Create directions renderer
             const directionsRenderer = new google.maps.DirectionsRenderer({
                 suppressMarkers: true,
                 preserveViewport: true,
@@ -1391,12 +1473,12 @@
             });
             directionsRenderer.setMap(map);
 
-            // Build the sequential route
+            // Build route from first user through other users to office (no driver position)
             const request = {
-                origin: { lat: parseFloat(route.latitude), lng: parseFloat(route.longitude) },
+                origin: {lat: parseFloat(sortedUsers[0].lat), lng: parseFloat(sortedUsers[0].lng)}, // Start from first user
                 destination: OFFICE_LOCATION, // End at office
                 waypoints: waypoints,
-                optimizeWaypoints: true, // Let Google optimize the order
+                optimizeWaypoints: false, // Keep pickup order
                 travelMode: google.maps.TravelMode.DRIVING,
                 avoidHighways: false,
                 avoidTolls: false
@@ -1406,52 +1488,46 @@
                 if (status === "OK") {
                     directionsRenderer.setDirections(response);
 
-                    // Add route markers to show sequence
-                    const legs = response.routes[0].legs;
-                    legs.forEach((leg, legIndex) => {
-                        if (legIndex < legs.length) {
-                            // Add sequence number markers at each stop
-                            const sequenceMarker = new google.maps.Marker({
-                                position: leg.start_location,
-                                map: map,
-                                icon: {
-                                    url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(`
-                                        <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                                            <circle cx="12" cy="12" r="10" fill="${color}" stroke="#ffffff" stroke-width="2"/>
-                                            <text x="12" y="16" font-family="Arial" font-size="12" text-anchor="middle" fill="white" font-weight="bold">${legIndex + 1}</text>
-                                        </svg>
-                                    `),
-                                    scaledSize: new google.maps.Size(24, 24),
-                                    anchor: new google.maps.Point(12, 12)
-                                },
-                                title: `Stop ${legIndex + 1} in Route ${routeIndex + 1}`,
-                                zIndex: 400
-                            });
+                    // Add sequence markers at user locations only
+                    sortedUsers.forEach((user, userIndex) => {
+                        const sequenceMarker = new google.maps.Marker({
+                            position: {lat: parseFloat(user.lat), lng: parseFloat(user.lng)},
+                            map: map,
+                            icon: {
+                                url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(`
+                                    <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                        <circle cx="12" cy="12" r="10" fill="${color}" stroke="#ffffff" stroke-width="2"/>
+                                        <text x="12" y="16" font-family="Arial" font-size="12" text-anchor="middle" fill="white" font-weight="bold">${userIndex + 1}</text>
+                                    </svg>
+                                `),
+                                scaledSize: new google.maps.Size(24, 24),
+                                anchor: new google.maps.Point(12, 12)
+                            },
+                            title: `Pickup ${userIndex + 1} in Route ${routeIndex + 1}`,
+                            zIndex: 400
+                        });
 
-                            markers.routes.push(sequenceMarker);
-                        }
+                        markers.routes.push(sequenceMarker);
                     });
 
-                    console.log(`✅ Sequential route created for Driver ${route.driver_id} with ${route.assigned_users.length} stops`);
+                    console.log(`✅ User-only sequential route created for Route ${routeIndex + 1} with ${route.assigned_users.length} stops`);
                 } else {
-                    console.warn(`Sequential route failed for Driver ${route.driver_id}:`, status);
-                    // Fallback to straight lines if directions fail
-                    createFallbackSequentialRoute(route, color);
+                    console.warn(`Sequential route failed for Route ${routeIndex + 1}:`, status);
+                    // Fallback to user-only straight lines
+                    createFallbackUserOnlyRoute(route, color, sortedUsers);
                 }
             });
 
-            routeRenderers.push({ renderer: directionsRenderer, polyline: null });
+            routeRenderers.push({renderer: directionsRenderer, polyline: null});
         }
 
-        function createFallbackSequentialRoute(route, color) {
-            // Create simple polyline route as fallback
-            const routePath = [
-                { lat: parseFloat(route.latitude), lng: parseFloat(route.longitude) } // Start at driver
-            ];
+        function createFallbackUserOnlyRoute(route, color, sortedUsers) {
+            // Create simple polyline route as fallback - users only, no driver position
+            const routePath = [];
 
-            // Add all user locations
-            route.assigned_users.forEach(user => {
-                routePath.push({ lat: parseFloat(user.lat), lng: parseFloat(user.lng) });
+            // Add all user locations in pickup order
+            sortedUsers.forEach(user => {
+                routePath.push({lat: parseFloat(user.lat), lng: parseFloat(user.lng)});
             });
 
             // End at office
@@ -1479,25 +1555,51 @@
             });
 
             fallbackRoute.setMap(map);
-            routeRenderers.push({ renderer: null, polyline: fallbackRoute });
+            routeRenderers.push({renderer: null, polyline: fallbackRoute});
         }
 
         function createOptimalPath(route, color) {
-            if (route.assigned_users.length < 2) return;
+            if (route.assigned_users.length === 0) return;
 
-            // Create TSP-like optimal path through all users
-            const points = [
-                { lat: parseFloat(route.latitude), lng: parseFloat(route.longitude), type: 'driver' },
-                ...route.assigned_users.map(user => ({
-                    lat: parseFloat(user.lat),
-                    lng: parseFloat(user.lng),
-                    type: 'user',
-                    id: user.user_id
-                }))
-            ];
+            // Create optimal path through users only (excluding driver starting position)
+            const points = route.assigned_users.map(user => ({
+                lat: parseFloat(user.lat),
+                lng: parseFloat(user.lng),
+                type: 'user',
+                id: user.user_id
+            }));
 
-            // Simple nearest neighbor algorithm for demonstration
-            const path = [points[0]]; // Start with driver
+            if (points.length === 1) {
+                // Single user - direct line to office
+                const singleUserPath = new google.maps.Polyline({
+                    path: [
+                        {lat: points[0].lat, lng: points[0].lng},
+                        {lat: OFFICE_LOCATION.lat, lng: OFFICE_LOCATION.lng}
+                    ],
+                    geodesic: true,
+                    strokeColor: color,
+                    strokeOpacity: 0.9,
+                    strokeWeight: 6,
+                    zIndex: 400,
+                    icons: [{
+                        icon: {
+                            path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
+                            scale: 3,
+                            fillColor: color,
+                            fillOpacity: 1,
+                            strokeColor: '#ffffff',
+                            strokeWeight: 1
+                        },
+                        offset: '100%'
+                    }]
+                });
+                singleUserPath.setMap(map);
+                optimalPaths.push(singleUserPath);
+                return;
+            }
+
+            // Simple nearest neighbor algorithm starting from first user
+            const path = [points[0]]; // Start with first user
             const remaining = points.slice(1);
 
             while (remaining.length > 0) {
@@ -1520,10 +1622,10 @@
             }
 
             // Add office as final destination
-            path.push({ lat: OFFICE_LOCATION.lat, lng: OFFICE_LOCATION.lng, type: 'office' });
+            path.push({lat: OFFICE_LOCATION.lat, lng: OFFICE_LOCATION.lng, type: 'office'});
 
             const optimalPath = new google.maps.Polyline({
-                path: path.map(p => ({ lat: p.lat, lng: p.lng })),
+                path: path.map(p => ({lat: p.lat, lng: p.lng})),
                 geodesic: true,
                 strokeColor: color,
                 strokeOpacity: 0.9,
@@ -1576,9 +1678,9 @@
             const totalRoutes = allRoutes.length;
             const totalUsers = allRoutes.reduce((sum, route) => sum + route.assigned_users.length, 0);
             const totalDrivers = allRoutes.length;
-            
+
             const utilizations = allRoutes.map(route => route.assigned_users.length / route.vehicle_type);
-            const avgUtilization = utilizations.length ? 
+            const avgUtilization = utilizations.length ?
                 (utilizations.reduce((a, b) => a + b, 0) / utilizations.length * 100).toFixed(1) : 0;
 
             document.getElementById('totalRoutes').textContent = totalRoutes;
@@ -1590,11 +1692,11 @@
         function updateAnalytics() {
             const totalUsers = allRoutes.reduce((sum, route) => sum + route.assigned_users.length, 0);
             const totalCapacity = allRoutes.reduce((sum, route) => sum + route.vehicle_type, 0);
-            
+
             // Performance metrics
             const assignmentRate = totalUsers && totalCapacity ? Math.min(100, (totalUsers / totalCapacity * 100)).toFixed(1) : 0;
             const capacityUtilization = totalCapacity ? (totalUsers / totalCapacity * 100).toFixed(1) : 0;
-            
+
             // Distance calculations
             let totalDistance = 0;
             let connectionCount = 0;
@@ -1605,10 +1707,10 @@
                 });
             });
             const avgDistance = connectionCount ? (totalDistance / connectionCount).toFixed(1) : 0;
-            
+
             // Efficiency score (0-10)
             const efficiencyScore = calculateEfficiencyScore(allRoutes).toFixed(1);
-            
+
             // Route quality breakdown
             const highEfficiency = allRoutes.filter(r => (r.assigned_users.length / r.vehicle_type) >= 0.8).length;
             const mediumEfficiency = allRoutes.filter(r => {
@@ -1730,10 +1832,10 @@
             const R = 6371;
             const dLat = (lat2 - lat1) * Math.PI / 180;
             const dLon = (lon2 - lon1) * Math.PI / 180;
-            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+            const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
                 Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-                Math.sin(dLon/2) * Math.sin(dLon/2);
-            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+                Math.sin(dLon / 2) * Math.sin(dLon / 2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
             return R * c;
         }
 
@@ -1798,7 +1900,7 @@
         function showRouteInfo(route, index) {
             const popup = document.getElementById('routeInfoPopup');
             const utilization = (route.assigned_users.length / route.vehicle_type * 100).toFixed(1);
-            
+
             const content = `
                 <div style="font-family: Inter, sans-serif;">
                     <h4 style="margin: 0 0 15px 0; color: #f1f5f9; display: flex; align-items: center; gap: 8px;">
@@ -1826,10 +1928,10 @@
                     </div>
                 </div>
             `;
-            
+
             document.getElementById('routeInfoContent').innerHTML = content;
             popup.style.display = 'block';
-            
+
             setTimeout(() => popup.style.display = 'none', 5000);
         }
 
@@ -1848,7 +1950,7 @@
                     const filtered = routes.filter(route =>
                         route.driver_id.toLowerCase().includes(query) ||
                         route.vehicle_id.toLowerCase().includes(query) ||
-                        route.assigned_users.some(user => 
+                        route.assigned_users.some(user =>
                             user.user_id.toLowerCase().includes(query) ||
                             (user.first_name && user.first_name.toLowerCase().includes(query)) ||
                             (user.email && user.email.toLowerCase().includes(query))
@@ -1885,14 +1987,14 @@
                         console.error('Error reloading data for cluster filter:', error);
                         showAlert('error', 'Failed to refresh data for filtering.');
                     });
-            } 
+            }
         }
 
         function filterByUtilization() {
             const minUtilizationPercent = parseInt(document.getElementById("utilizationRange").value);
             const minUtilization = minUtilizationPercent / 100;
             document.getElementById("utilizationValue").textContent = `${minUtilizationPercent}%`;
-            
+
             // Reload original data to filter from
             fetch(API_URL)
                 .then(res => res.json())
@@ -1914,13 +2016,13 @@
         function highlightRoute(index) {
             // Remove existing highlights
             document.querySelectorAll('.cluster-color').forEach(el => el.classList.remove('active'));
-            
+
             // Highlight selected
             const highlightedElement = document.querySelector(`.cluster-color:nth-child(${index + 1})`);
             if (highlightedElement) {
                 highlightedElement.classList.add('active');
             }
-            
+
             // Filter to show only this route
             fetch(API_URL)
                 .then(res => res.json())
@@ -1929,7 +2031,7 @@
                         allRoutes = [routes[index]];
                         renderMap();
                         updateStats(); // Update stats for the single route
-                        
+
                         // Focus map on this route
                         const route = allRoutes[0];
                         if (route.assigned_users.length > 0) {
@@ -1983,14 +2085,14 @@
 
         function updateDisplayButtons() {
             const buttons = [
-                { id: 'toggleUsersBtn', state: displayState.users },
-                { id: 'toggleDriversBtn', state: displayState.drivers },
-                { id: 'toggleRouteLinesBtn', state: displayState.routeLines },
-                { id: 'toggleHeatmapBtn', state: displayState.heatmap },
-                { id: 'showOptimalBtn', state: displayState.optimalPaths }
+                {id: 'toggleUsersBtn', state: displayState.users},
+                {id: 'toggleDriversBtn', state: displayState.drivers},
+                {id: 'toggleRouteLinesBtn', state: displayState.routeLines},
+                {id: 'toggleHeatmapBtn', state: displayState.heatmap},
+                {id: 'showOptimalBtn', state: displayState.optimalPaths}
             ];
 
-            buttons.forEach(({ id, state }) => {
+            buttons.forEach(({id, state}) => {
                 const btn = document.getElementById(id);
                 if (btn) {
                     if (state) {
@@ -2013,14 +2115,14 @@
 
             const bounds = new google.maps.LatLngBounds();
             bounds.extend(OFFICE_LOCATION);
-            
+
             allRoutes.forEach(route => {
                 bounds.extend(new google.maps.LatLng(parseFloat(route.latitude), parseFloat(route.longitude)));
                 route.assigned_users.forEach(user => {
                     bounds.extend(new google.maps.LatLng(parseFloat(user.lat), parseFloat(user.lng)));
                 });
             });
-            
+
             map.fitBounds(bounds);
         }
 
@@ -2038,8 +2140,8 @@
                 capacity: route.vehicle_type,
                 assigned_users: route.assigned_users.length,
                 utilization_percent: ((route.assigned_users.length / route.vehicle_type) * 100).toFixed(2),
-                efficiency_rating: route.assigned_users.length / route.vehicle_type >= 0.8 ? 'High' : 
-                                 route.assigned_users.length / route.vehicle_type >= 0.5 ? 'Medium' : 'Low',
+                efficiency_rating: route.assigned_users.length / route.vehicle_type >= 0.8 ? 'High' :
+                    route.assigned_users.length / route.vehicle_type >= 0.5 ? 'Medium' : 'Low',
                 driver_lat: route.latitude,
                 driver_lng: route.longitude
             }));
@@ -2054,14 +2156,14 @@
                 ...csvData.map(row => Object.values(row).join(','))
             ].join('\n');
 
-            const blob = new Blob([csv], { type: 'text/csv' });
+            const blob = new Blob([csv], {type: 'text/csv'});
             const url = window.URL.createObjectURL(blob);
             const link = document.createElement('a');
             link.href = url;
             link.download = `routeflow-analytics-${new Date().toISOString().split('T')[0]}.csv`;
             link.click();
             window.URL.revokeObjectURL(url);
-            
+
             showAlert('success', 'Analytics data exported successfully!');
         }
 
@@ -2086,8 +2188,8 @@
                     assignment_info: {
                         users_assigned: route.assigned_users.length,
                         utilization_percent: ((route.assigned_users.length / route.vehicle_type) * 100).toFixed(2),
-                        efficiency_rating: route.assigned_users.length / route.vehicle_type >= 0.8 ? 'High' : 
-                                         route.assigned_users.length / route.vehicle_type >= 0.5 ? 'Medium' : 'Low'
+                        efficiency_rating: route.assigned_users.length / route.vehicle_type >= 0.8 ? 'High' :
+                            route.assigned_users.length / route.vehicle_type >= 0.5 ? 'Medium' : 'Low'
                     },
                     location: {
                         latitude: route.latitude,
@@ -2102,14 +2204,14 @@
                 return;
             }
 
-            const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+            const blob = new Blob([JSON.stringify(report, null, 2)], {type: 'application/json'});
             const url = window.URL.createObjectURL(blob);
             const link = document.createElement('a');
             link.href = url;
             link.download = `routeflow-report-${new Date().toISOString().split('T')[0]}.json`;
             link.click();
             window.URL.revokeObjectURL(url);
-            
+
             showAlert('success', 'Comprehensive report generated successfully!');
         }
 
@@ -2120,12 +2222,15 @@
         }
 
         // Initialize when DOM is loaded
-        document.addEventListener('DOMContentLoaded', function() {
+        document.addEventListener('DOMContentLoaded', function () {
             // Any additional initialization code can go here if needed
         });
     </script>
 
     <!-- Google Maps API with visualization library -->
-    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAjESclgKTCpmdmHKc7bzCKIQtYe_vIbb4&libraries=places,visualization&callback=initMap&libraries=places" async defer></script>
+    <script
+        src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAjESclgKTCpmdmHKc7bzCKIQtYe_vIbb4&libraries=places,visualization&callback=initMap&libraries=places"
+        async defer></script>
 </body>
+
 </html>
