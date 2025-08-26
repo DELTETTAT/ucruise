@@ -1,4 +1,3 @@
-
 import networkx as nx
 import numpy as np
 from functools import lru_cache
@@ -131,12 +130,19 @@ class RoadNetwork:
         
         # Apply directional penalty for zig-zag routes
         directional_penalty = self._calculate_directional_penalty(route_points)
-        
+
         # Apply backtracking penalty
         backtrack_penalty = self._calculate_backtrack_penalty(route_points, office_pos)
-        
-        # Final score combines all factors
-        final_score = base_coherence * (1.0 - directional_penalty) * (1.0 - backtrack_penalty)
+
+        # Bonus for straight roads (low directional changes)
+        straight_road_bonus = 0.0
+        if directional_penalty < 0.2:  # Very few direction changes
+            road_efficiency = total_straight_distance / total_road_distance
+            if road_efficiency > 0.8:  # Road distance close to straight line
+                straight_road_bonus = 0.15  # 15% bonus for straight roads
+
+        # Final score combines all factors with straight road bonus
+        final_score = base_coherence * (1.0 - directional_penalty) * (1.0 - backtrack_penalty) + straight_road_bonus
         return min(1.0, max(0.0, final_score))
     
     def is_user_on_route_path(self, driver_pos: Tuple[float, float],
@@ -158,14 +164,19 @@ class RoadNetwork:
             
             detour_ratio = via_user_distance / max(direct_distance, 0.1)
             
-            # Additional check: ensure user is not too far from direct path
-            straight_line_distance = self._haversine_distance(*driver_pos, *office_pos)
-            user_to_path_distance = self._point_to_line_distance(
+            # More flexible for good roads - check road efficiency
+            road_efficiency = self._haversine_distance(*driver_pos, *office_pos) / self.get_road_distance(*driver_pos, *office_pos)
+
+            # If roads are efficient (close to straight line), be more lenient
+            if road_efficiency > 0.85:  # Very efficient road network
+                max_path_deviation = 0.4  # 40% deviation allowed
+                max_detour_ratio = min(max_detour_ratio * 1.2, 1.4)  # 20% more lenient
+            else:
+                max_path_deviation = 0.3  # 30% deviation
+
+            if self._point_to_line_distance(
                 candidate_user, driver_pos, office_pos
-            )
-            
-            # Reject if user is too far off the main path
-            if user_to_path_distance > straight_line_distance * 0.3:  # 30% of path length
+            ) > self._haversine_distance(*driver_pos, *office_pos) * max_path_deviation:
                 return False
                 
             return detour_ratio <= max_detour_ratio
