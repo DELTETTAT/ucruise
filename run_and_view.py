@@ -3,28 +3,28 @@ import threading
 import time
 import webbrowser
 import sys
-from assignment import run_assignment, analyze_assignment_quality
+from assignment import run_assignment, run_road_coherent_assignment, analyze_assignment_quality
 
-SOURCE_ID = "UC_logisticllp"  # <-- Replace with your real source_id
+SOURCE_ID = "UC_unify_dev"  # <-- Replace with your real source_id
 PARAMETER = 1  # Example numerical parameter
 STRING_PARAM = "Evening%20shift" # Example string parameter
 
 def start_fastapi():
-    subprocess.run(["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "5000", "--reload"])
+    subprocess.run(["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "3000", "--reload"])
 
 def launch_browser():
     time.sleep(5)  # Wait longer for server to start
     try:
-        webbrowser.open("http://localhost:5000/visualize")
-        print("🌐 Browser opened at: http://localhost:5000/visualize")
+        webbrowser.open("http://localhost:3000/visualize")
+        print("🌐 Browser opened at: http://localhost:3000/visualize")
     except Exception as e:
         print(f"⚠️  Could not auto-open browser: {e}")
-        print("   Please manually visit: http://localhost:5000/visualize")
+        print("   Please manually visit: http://localhost:3000/visualize")
 
 def display_detailed_analytics(result):
     """Display comprehensive analytics in terminal with enhanced formatting"""
     print("\n" + "🎯" + "="*78 + "🎯")
-    print("📊 ROUTEFLOW - INTELLIGENT ASSIGNMENT ANALYTICS DASHBOARD")
+    print("📊 ROUTEFLOW - INTELLIGENT ASSIGNMENT DASHBOARD")
     print("🎯" + "="*78 + "🎯")
 
     if result["status"] != "true":
@@ -286,7 +286,7 @@ def display_detailed_analytics(result):
             print(f"   ... and {len(unassigned_users) - 5} more users need manual assignment")
 
     print("\n" + "🎯" + "="*78 + "🎯")
-    print("🌐 ACCESS FULL INTERACTIVE DASHBOARD: http://localhost:5000/visualize")
+    print("🌐 ACCESS FULL INTERACTIVE DASHBOARD: http://localhost:3000/visualize")
     print("📊 Real-time analytics, route optimization, and performance monitoring available")
     print("🎯" + "="*78 + "🎯\n")
 
@@ -330,8 +330,8 @@ if __name__ == "__main__":
     print("-" * 50)
 
     try:
-        print("⏳ Running assignment algorithm...")
-        result = run_assignment(SOURCE_ID, PARAMETER, STRING_PARAM)
+        print("⏳ Running road-coherent assignment algorithm...")
+        result = run_road_coherent_assignment(SOURCE_ID, PARAMETER, STRING_PARAM)
 
         if result["status"] == "true":
             print("✅ Assignment completed successfully!")
@@ -361,7 +361,7 @@ if __name__ == "__main__":
             exit(1)
 
         print("\n🚀 Launching Dashboard...")
-        print("   - Starting FastAPI server on port 5000")
+        print("   - Starting FastAPI server on port 3000")
         print("   - Opening browser automatically")
 
         # Start server in background
@@ -373,8 +373,8 @@ if __name__ == "__main__":
         browser_thread.start()
 
         print("\n✅ Dashboard is starting up...")
-        print("📱 Manual URL: http://localhost:5000/visualize")
-        print("📊 API Endpoint: http://localhost:5000/routes")
+        print("📱 Manual URL: http://localhost:3000/visualize")
+        print("📊 API Endpoint: http://localhost:3000/routes")
         print("\n⌨️  Press Ctrl+C to stop the server")
 
         try:

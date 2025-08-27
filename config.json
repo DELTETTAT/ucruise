@@ -1,14 +1,11 @@
 {
-   "office_latitude": 30.6810489,
-   "office_longitude": 76.7260711,
-   "max_extra_distance_km": 6.0,
-   "max_fill_distance_km": 12.0,
-   "use_road_network": true,
-   "fallback_assign_enabled": true,
-   "emergency_assignment_enabled": true,
-   "directional_sector_degrees": 45,
-   "max_bearing_difference": 30,
-   "min_road_coherence_score": 0.7,
-   "direction_weight": 0.4,
-   "distance_weight": 0.6
+    "office_latitude": 30.6810489,
+    "office_longitude": 76.7260711,
+    "max_fill_distance_km": 4.0,
+    "use_road_network": true,
+    "road_network_path": "tricity_main_roads.graphml",
+    "min_road_coherence_score": 0.7,
+    "max_extra_distance_km": 2.0,
+    "max_deviation_angle": 120,
+    "max_route_deviation_ratio": 2.0
 }
