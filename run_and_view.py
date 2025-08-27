@@ -1,3 +1,4 @@
+
 import subprocess
 import threading
 import time
@@ -10,7 +11,7 @@ PARAMETER = 1  # Example numerical parameter
 STRING_PARAM = "Evening%20shift" # Example string parameter
 
 def start_fastapi():
-    subprocess.run(["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "3000", "--reload"])
+    subprocess.run(["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "3000", "--reload"])
 
 def launch_browser():
     time.sleep(5)  # Wait longer for server to start
@@ -24,7 +25,7 @@ def launch_browser():
 def display_detailed_analytics(result):
     """Display comprehensive analytics in terminal with enhanced formatting"""
     print("\n" + "🎯" + "="*78 + "🎯")
-    print("📊 ROUTEFLOW - INTELLIGENT ASSIGNMENT ANALYTICS DASHBOARD")
+    print("📊 ROUTEFLOW - INTELLIGENT ASSIGNMENT DASHBOARD")
     print("🎯" + "="*78 + "🎯")
 
     if result["status"] != "true":
