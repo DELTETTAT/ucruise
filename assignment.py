@@ -1,3 +1,4 @@
+
 import os
 import math
 import requests
@@ -24,63 +25,56 @@ logger = logging.getLogger(__name__)
 
 
 # Load and validate configuration with robust error handling
-def load_and_validate_config():
-    """Load configuration with validation and environment fallbacks"""
+def load_and_validate_config(optimization_mode="balanced"):
+    """Load configuration with validation and mode-specific settings"""
     try:
         with open('config.json') as f:
             cfg = json.load(f)
     except (FileNotFoundError, json.JSONDecodeError) as e:
-        print(
-            f"Warning: Could not load config.json, using defaults. Error: {e}")
+        print(f"Warning: Could not load config.json, using defaults. Error: {e}")
         cfg = {}
 
-    # Validate and set configuration with type checking and bounds
+    # Get the optimization mode from parameter or config file
+    current_mode = optimization_mode or cfg.get("optimization_mode", "balanced")
+    
+    # Get mode-specific configuration
+    mode_configs = cfg.get("mode_configs", {})
+    mode_config = mode_configs.get(current_mode, {})
+    
+    print(f"🎯 Using optimization mode: {current_mode.upper()}")
+    
+    # Validate and set configuration with mode-specific overrides
     config = {}
 
-    # Distance configurations (must be positive floats)
-    config['MAX_FILL_DISTANCE_KM'] = max(
-        0.1, float(cfg.get("max_fill_distance_km", 5.0)))
-    config['MERGE_DISTANCE_KM'] = max(0.1,
-                                      float(cfg.get("merge_distance_km", 3.0)))
-    config['DBSCAN_EPS_KM'] = max(0.1, float(cfg.get("dbscan_eps_km", 3.0)))
-    config['OVERFLOW_PENALTY_KM'] = max(
-        0.0, float(cfg.get("overflow_penalty_km", 10.0)))
-    config['DISTANCE_ISSUE_THRESHOLD'] = max(
-        0.1, float(cfg.get("distance_issue_threshold_km", 8.0)))
-    config['SWAP_IMPROVEMENT_THRESHOLD'] = max(
-        0.0, float(cfg.get("swap_improvement_threshold_km", 0.5)))
+    # Distance configurations with mode overrides
+    config['MAX_FILL_DISTANCE_KM'] = max(0.1, float(mode_config.get("max_fill_distance_km", cfg.get("max_fill_distance_km", 5.0))))
+    config['MERGE_DISTANCE_KM'] = max(0.1, float(mode_config.get("merge_distance_km", cfg.get("merge_distance_km", 3.0))))
+    config['DBSCAN_EPS_KM'] = max(0.1, float(cfg.get("dbscan_eps_km", 1.5)))
+    config['OVERFLOW_PENALTY_KM'] = max(0.0, float(cfg.get("overflow_penalty_km", 10.0)))
+    config['DISTANCE_ISSUE_THRESHOLD'] = max(0.1, float(cfg.get("distance_issue_threshold_km", 8.0)))
+    config['SWAP_IMPROVEMENT_THRESHOLD'] = max(0.0, float(cfg.get("swap_improvement_threshold_km", 0.5)))
 
     # Utilization thresholds (0-1 range)
-    config['MIN_UTIL_THRESHOLD'] = max(
-        0.0, min(1.0, float(cfg.get("min_util_threshold", 0.5))))
-    config['LOW_UTILIZATION_THRESHOLD'] = max(
-        0.0, min(1.0, float(cfg.get("low_utilization_threshold", 0.5))))
+    config['MIN_UTIL_THRESHOLD'] = max(0.0, min(1.0, float(cfg.get("min_util_threshold", 0.5))))
+    config['LOW_UTILIZATION_THRESHOLD'] = max(0.0, min(1.0, float(cfg.get("low_utilization_threshold", 0.5))))
 
     # Integer configurations (must be positive)
-    config['MIN_SAMPLES_DBSCAN'] = max(1, int(cfg.get("min_samples_dbscan",
-                                                      2)))
-    config['MAX_SWAP_ITERATIONS'] = max(1,
-                                        int(cfg.get("max_swap_iterations", 3)))
-    config['MAX_USERS_FOR_FALLBACK'] = max(
-        1, int(cfg.get("max_users_for_fallback", 3)))
-    config['FALLBACK_MIN_USERS'] = max(1, int(cfg.get("fallback_min_users",
-                                                      2)))
-    config['FALLBACK_MAX_USERS'] = max(1, int(cfg.get("fallback_max_users",
-                                                      7)))
+    config['MIN_SAMPLES_DBSCAN'] = max(1, int(cfg.get("min_samples_dbscan", 2)))
+    config['MAX_SWAP_ITERATIONS'] = max(1, int(cfg.get("max_swap_iterations", 3)))
+    config['MAX_USERS_FOR_FALLBACK'] = max(1, int(cfg.get("max_users_for_fallback", 3)))
+    config['FALLBACK_MIN_USERS'] = max(1, int(cfg.get("fallback_min_users", 2)))
+    config['FALLBACK_MAX_USERS'] = max(1, int(cfg.get("fallback_max_users", 7)))
 
-    # Angle configurations (0-180 degrees)
-    config['MAX_BEARING_DIFFERENCE'] = max(
-        0, min(180, float(cfg.get("max_bearing_difference", 30))))
+    # Angle configurations with mode overrides
+    config['MAX_BEARING_DIFFERENCE'] = max(0, min(180, float(mode_config.get("max_bearing_difference", cfg.get("max_bearing_difference", 20)))))
+    config['MAX_TURNING_ANGLE'] = max(0, min(180, float(mode_config.get("max_allowed_turning_score", cfg.get("max_allowed_turning_score", 35)))))
 
-    # Cost penalties (must be non-negative)
-    config['UTILIZATION_PENALTY_PER_SEAT'] = max(
-        0.0, float(cfg.get("utilization_penalty_per_seat", 2.0)))
+    # Cost penalties with mode overrides
+    config['UTILIZATION_PENALTY_PER_SEAT'] = max(0.0, float(mode_config.get("utilization_penalty_per_seat", cfg.get("utilization_penalty_per_seat", 2.0))))
 
     # Office coordinates with environment variable fallbacks
-    office_lat = float(
-        os.getenv("OFFICE_LAT", cfg.get("office_latitude", 30.6810489)))
-    office_lon = float(
-        os.getenv("OFFICE_LON", cfg.get("office_longitude", 76.7260711)))
+    office_lat = float(os.getenv("OFFICE_LAT", cfg.get("office_latitude", 30.6810489)))
+    office_lon = float(os.getenv("OFFICE_LON", cfg.get("office_longitude", 76.7260711)))
 
     # Validate coordinate bounds
     if not (-90 <= office_lat <= 90):
@@ -93,23 +87,42 @@ def load_and_validate_config():
     config['OFFICE_LAT'] = office_lat
     config['OFFICE_LON'] = office_lon
 
-    # Clustering and optimization parameters
+    # Mode-specific parameters
+    config['optimization_mode'] = current_mode
+    config['aggressive_merging'] = mode_config.get('aggressive_merging', True)
+    config['capacity_weight'] = mode_config.get('capacity_weight', 2.0)
+    config['direction_weight'] = mode_config.get('direction_weight', 2.0)
+
+    # Clustering and optimization parameters with mode overrides
     config['clustering_method'] = cfg.get('clustering_method', 'adaptive')
     config['min_cluster_size'] = max(2, cfg.get('min_cluster_size', 3))
     config['use_sweep_algorithm'] = cfg.get('use_sweep_algorithm', True)
     config['angular_sectors'] = cfg.get('angular_sectors', 8)
     config['max_users_per_initial_cluster'] = cfg.get('max_users_per_initial_cluster', 8)
     config['max_users_per_cluster'] = cfg.get('max_users_per_cluster', 7)
-    config['max_allowed_turning_score'] = cfg.get('max_allowed_turning_score', 45)
-    config['max_tortuosity_ratio'] = cfg.get('max_tortuosity_ratio', 1.8)
-    config['zigzag_penalty_weight'] = cfg.get('zigzag_penalty_weight', 2.0)
 
+    # Mode-specific routing parameters
+    config['zigzag_penalty_weight'] = mode_config.get('zigzag_penalty_weight', cfg.get('zigzag_penalty_weight', 3.0))
+    config['route_split_turning_threshold'] = cfg.get('route_split_turning_threshold', 35)
+    config['max_tortuosity_ratio'] = cfg.get('max_tortuosity_ratio', 1.4)
+    config['route_split_consistency_threshold'] = cfg.get('route_split_consistency_threshold', 0.7)
+    config['merge_tortuosity_improvement_required'] = cfg.get('merge_tortuosity_improvement_required', True)
+    
+    # Latitude conversion factor for distance normalization
+    config['LAT_TO_KM'] = 111.0
+    config['LON_TO_KM'] = 111.0 * math.cos(math.radians(office_lat))
+
+    print(f"   📊 Max bearing difference: {config['MAX_BEARING_DIFFERENCE']}°")
+    print(f"   📊 Max turning score: {config['MAX_TURNING_ANGLE']}°")
+    print(f"   📊 Max fill distance: {config['MAX_FILL_DISTANCE_KM']}km")
+    print(f"   📊 Capacity weight: {config['capacity_weight']}")
+    print(f"   📊 Direction weight: {config['direction_weight']}")
 
     return config
 
 
-# Load validated configuration
-_config = load_and_validate_config()
+# Load validated configuration - will be reloaded with mode in run_assignment
+_config = load_and_validate_config(None)
 MAX_FILL_DISTANCE_KM = _config['MAX_FILL_DISTANCE_KM']
 MERGE_DISTANCE_KM = _config['MERGE_DISTANCE_KM']
 MIN_UTIL_THRESHOLD = _config['MIN_UTIL_THRESHOLD']
@@ -418,18 +431,26 @@ def calculate_bearings_and_features(user_df, office_lat, office_lon):
     return user_df
 
 
-# Helper functions for clustering
-def dbscan_clustering(user_df, eps_km, min_samples):
-    """Perform DBSCAN clustering on user data"""
-    coords = user_df[['latitude', 'longitude']].values
+def coords_to_km(lat, lon, office_lat, office_lon):
+    """Convert lat/lon coordinates to km from office using local approximation"""
+    lat_km = (lat - office_lat) * _config['LAT_TO_KM']
+    lon_km = (lon - office_lon) * _config['LON_TO_KM']
+    return lat_km, lon_km
 
-    # Scale coordinates for DBSCAN
-    scaler = StandardScaler()
-    scaled_coords = scaler.fit_transform(coords)
 
-    # Perform DBSCAN
+def dbscan_clustering_metric(user_df, eps_km, min_samples, office_lat, office_lon):
+    """Perform DBSCAN clustering using proper metric coordinates"""
+    # Convert coordinates to km from office
+    coords_km = []
+    for _, user in user_df.iterrows():
+        lat_km, lon_km = coords_to_km(user['latitude'], user['longitude'], office_lat, office_lon)
+        coords_km.append([lat_km, lon_km])
+    
+    coords_km = np.array(coords_km)
+    
+    # Use DBSCAN with eps in km (no scaling needed now)
     dbscan = DBSCAN(eps=eps_km, min_samples=min_samples)
-    labels = dbscan.fit_predict(scaled_coords)
+    labels = dbscan.fit_predict(coords_km)
 
     # Handle noise points: assign to nearest cluster if possible
     noise_mask = labels == -1
@@ -438,8 +459,8 @@ def dbscan_clustering(user_df, eps_km, min_samples):
         if len(valid_labels) > 0:
             # Find nearest cluster for each noise point
             for i in np.where(noise_mask)[0]:
-                dist_to_noise_point = scaled_coords[i]
-                distances = cdist([dist_to_noise_point], scaled_coords[~noise_mask])[0]
+                noise_point = coords_km[i]
+                distances = cdist([noise_point], coords_km[~noise_mask])[0]
                 nearest_cluster_idx = np.argmin(distances)
                 labels[i] = valid_labels[nearest_cluster_idx]
         else:
@@ -447,19 +468,29 @@ def dbscan_clustering(user_df, eps_km, min_samples):
             labels[:] = 0
     return labels
 
-def kmeans_clustering(user_df, n_clusters):
-    """Perform KMeans clustering"""
-    coords = user_df[['latitude', 'longitude']].values
-    scaler = StandardScaler()
-    scaled_coords = scaler.fit_transform(coords)
-    kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
-    return kmeans.fit_predict(scaled_coords)
 
-def estimate_clusters(user_df, config):
-    """Estimate optimal number of clusters using silhouette score"""
-    coords = user_df[['latitude', 'longitude']].values
-    scaler = StandardScaler()
-    scaled_coords = scaler.fit_transform(coords)
+def kmeans_clustering_metric(user_df, n_clusters, office_lat, office_lon):
+    """Perform KMeans clustering using metric coordinates"""
+    # Convert coordinates to km from office
+    coords_km = []
+    for _, user in user_df.iterrows():
+        lat_km, lon_km = coords_to_km(user['latitude'], user['longitude'], office_lat, office_lon)
+        coords_km.append([lat_km, lon_km])
+    
+    coords_km = np.array(coords_km)
+    kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+    return kmeans.fit_predict(coords_km)
+
+
+def estimate_clusters(user_df, config, office_lat, office_lon):
+    """Estimate optimal number of clusters using silhouette score with metric coordinates"""
+    # Convert coordinates to km from office
+    coords_km = []
+    for _, user in user_df.iterrows():
+        lat_km, lon_km = coords_to_km(user['latitude'], user['longitude'], office_lat, office_lon)
+        coords_km.append([lat_km, lon_km])
+    
+    coords_km = np.array(coords_km)
 
     max_clusters = min(10, len(user_df) // 2)
     if max_clusters < 2:
@@ -468,9 +499,9 @@ def estimate_clusters(user_df, config):
     scores = []
     for n_clusters in range(2, max_clusters + 1):
         kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
-        cluster_labels = kmeans.fit_predict(scaled_coords)
+        cluster_labels = kmeans.fit_predict(coords_km)
         if len(set(cluster_labels)) > 1:
-            score = silhouette_score(scaled_coords, cluster_labels)
+            score = silhouette_score(coords_km, cluster_labels)
             scores.append((n_clusters, score))
 
     if not scores:
@@ -482,7 +513,7 @@ def estimate_clusters(user_df, config):
 
 # STEP 1: DIRECTION-AWARE GEOGRAPHIC CLUSTERING
 def create_geographic_clusters(user_df, office_lat, office_lon, config):
-    """Create direction-aware geographic clusters using polar coordinates"""
+    """Create direction-aware geographic clusters using proper distance metrics"""
     if len(user_df) == 0:
         return user_df
 
@@ -493,7 +524,6 @@ def create_geographic_clusters(user_df, office_lat, office_lon, config):
 
     # Use sector-based clustering for direction awareness
     use_sweep = config.get('use_sweep_algorithm', True)
-    max_bearing_diff = config.get('max_bearing_difference', 15)  # Reduced from 30
 
     if use_sweep and len(user_df) > 3:
         labels = sweep_clustering(user_df, config)
@@ -505,6 +535,7 @@ def create_geographic_clusters(user_df, office_lat, office_lon, config):
 
     print(f"  ✅ Created {n_clusters} direction-aware geographic clusters")
     return user_df
+
 
 def sweep_clustering(user_df, config):
     """Sweep algorithm: sort by bearing and group by capacity"""
@@ -531,8 +562,9 @@ def sweep_clustering(user_df, config):
 
     return result_labels
 
+
 def polar_sector_clustering(user_df, office_lat, office_lon, config):
-    """Partition into angular sectors then cluster within sectors"""
+    """Partition into angular sectors then cluster within sectors using metric distances"""
     n_sectors = config.get('angular_sectors', 8)
     sector_angle = 360.0 / n_sectors
 
@@ -555,9 +587,9 @@ def polar_sector_clustering(user_df, office_lat, office_lon, config):
                 labels[idx] = current_cluster
             current_cluster += 1
         else:
-            # Use spatial clustering within sector
-            eps_km = config.get('DBSCAN_EPS_KM', 1.5)  # Smaller for within-sector
-            sector_labels = dbscan_clustering(sector_users, eps_km, 2)
+            # Use spatial clustering within sector with proper metric
+            eps_km = config.get('DBSCAN_EPS_KM', 1.5)
+            sector_labels = dbscan_clustering_metric(sector_users, eps_km, 2, office_lat, office_lon)
 
             for i, idx in enumerate(sector_users.index):
                 if sector_labels[i] == -1:
@@ -581,7 +613,7 @@ def create_capacity_subclusters(user_df, office_lat, office_lon, config):
 
     user_df['sub_cluster'] = -1
     sub_cluster_counter = 0
-    max_bearing_diff = config.get('max_bearing_difference', 15)  # Reduced for better direction consistency
+    max_bearing_diff = config.get('MAX_BEARING_DIFFERENCE', 20)
 
     for geo_cluster in user_df['geo_cluster'].unique():
         if geo_cluster == -1:
@@ -600,6 +632,7 @@ def create_capacity_subclusters(user_df, office_lat, office_lon, config):
 
     print(f"  ✅ Created {user_df['sub_cluster'].nunique()} direction-aware capacity-based sub-clusters")
     return user_df
+
 
 def create_bearing_aware_subclusters(geo_cluster_users, user_df, sub_cluster_counter, config, max_bearing_diff):
     """Create subclusters that maintain directional consistency"""
@@ -629,6 +662,7 @@ def create_bearing_aware_subclusters(geo_cluster_users, user_df, sub_cluster_cou
         sub_cluster_counter += 1
 
     return sub_cluster_counter
+
 
 def calculate_bearing_spread(users):
     """Calculate the angular spread of users"""
@@ -673,6 +707,42 @@ def assign_drivers_by_priority(user_df, driver_df, office_lat, office_lon):
         if unassigned_in_cluster.empty:
             continue
 
+        # Auto-split clusters that are larger than any available driver's capacity
+        if not available_drivers.empty:
+            max_driver_capacity = int(available_drivers['capacity'].max())
+        else:
+            max_driver_capacity = 0
+
+        if max_driver_capacity > 0 and len(unassigned_in_cluster) > max_driver_capacity:
+            parts = math.ceil(len(unassigned_in_cluster) / max_driver_capacity)
+            print(f"  📍 Auto-splitting large cluster {sub_cluster_id} ({len(unassigned_in_cluster)} users) into {parts} capacity-sized parts")
+            
+            # Build feature matrix: km coords + bearing sin/cos
+            coords = []
+            rows = []
+            for _, u in unassigned_in_cluster.iterrows():
+                lat_km, lon_km = coords_to_km(u['latitude'], u['longitude'], office_lat, office_lon)
+                coords.append([lat_km, lon_km, math.sin(math.radians(u['bearing_from_office'])), math.cos(math.radians(u['bearing_from_office']))])
+                rows.append(u)
+            coords = np.array(coords)
+            
+            # Safe fallback: if parts > len(points) just treat individually
+            n_clusters = min(parts, len(coords))
+            kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=5)
+            labels = kmeans.fit_predict(coords)
+
+            # Assign each sub-part separately
+            for p in range(n_clusters):
+                part_indices = [i for i, label in enumerate(labels) if label == p]
+                if not part_indices:
+                    continue
+                part_users = unassigned_in_cluster.iloc[part_indices]
+                route = assign_best_driver_to_cluster(part_users, available_drivers, used_driver_ids, office_lat, office_lon)
+                if route:
+                    routes.append(route)
+                    assigned_user_ids.update(u['user_id'] for u in route['assigned_users'])
+            continue
+
         # Check bearing coherence and split if necessary
         bearings = unassigned_in_cluster['bearing_from_office'].values
         if len(bearings) > 1:
@@ -685,26 +755,14 @@ def assign_drivers_by_priority(user_df, driver_df, office_lat, office_lon):
                 print(
                     f"  📍 Splitting sub-cluster {sub_cluster_id} due to bearing spread ({max(bearing_diffs):.1f}°)"
                 )
-                # Split into 2 sub-groups based on bearing
-                coords_with_bearing = np.column_stack([
-                    unassigned_in_cluster[['latitude', 'longitude']].values,
-                    unassigned_in_cluster[['bearing_sin',
-                                           'bearing_cos']].values
-                ])
-                kmeans = KMeans(n_clusters=2, random_state=42, n_init=10)
-                split_labels = kmeans.fit_predict(coords_with_bearing)
-
-                # Process each split separately
-                for split_id in range(2):
-                    split_users = unassigned_in_cluster[split_labels == split_id]
-                    if len(split_users) > 0:
-                        route = assign_best_driver_to_cluster(
-                            split_users, available_drivers, used_driver_ids,
-                            office_lat, office_lon)
-                        if route:
-                            routes.append(route)
-                            assigned_user_ids.update(
-                                u['user_id'] for u in route['assigned_users'])
+                # Split into 2 sub-groups based on bearing with metric clustering
+                split_routes = split_cluster_by_bearing_metric(
+                    unassigned_in_cluster, available_drivers, used_driver_ids, office_lat, office_lon
+                )
+                for route in split_routes:
+                    if route:
+                        routes.append(route)
+                        assigned_user_ids.update(u['user_id'] for u in route['assigned_users'])
                 continue
 
         # Assign best driver to this cluster if not split
@@ -727,44 +785,99 @@ def assign_drivers_by_priority(user_df, driver_df, office_lat, office_lon):
     return routes, assigned_user_ids
 
 
+def split_cluster_by_bearing_metric(cluster_users, available_drivers, used_driver_ids, office_lat, office_lon):
+    """Split cluster using bearing-based K-means with metric coordinates"""
+    split_routes = []
+    
+    # Convert to metric coordinates
+    coords_km = []
+    bearings = []
+    for _, user in cluster_users.iterrows():
+        lat_km, lon_km = coords_to_km(user['latitude'], user['longitude'], office_lat, office_lon)
+        coords_km.append([lat_km, lon_km])
+        bearings.append(user['bearing_from_office'])
+    
+    # Combine coordinates with bearing weights for clustering
+    coords_with_bearing = np.column_stack([
+        coords_km,
+        np.sin(np.radians(bearings)),
+        np.cos(np.radians(bearings))
+    ])
+    
+    kmeans = KMeans(n_clusters=2, random_state=42, n_init=10)
+    split_labels = kmeans.fit_predict(coords_with_bearing)
+
+    # Process each split separately
+    for split_id in range(2):
+        split_users = cluster_users[split_labels == split_id]
+        if len(split_users) > 0:
+            route = assign_best_driver_to_cluster(
+                split_users, available_drivers, used_driver_ids,
+                office_lat, office_lon)
+            if route:
+                split_routes.append(route)
+    
+    return split_routes
+
+
 def assign_best_driver_to_cluster(cluster_users, available_drivers,
                                   used_driver_ids, office_lat, office_lon):
-    """Find and assign the best available driver to a cluster with sequence-aware cost"""
+    """Find and assign the best available driver with mode-specific optimization"""
     cluster_size = len(cluster_users)
 
     best_driver = None
     min_cost = float('inf')
     best_sequence = None
 
+    # Get mode-specific weights
+    capacity_weight = _config.get('capacity_weight', 2.0)
+    direction_weight = _config.get('direction_weight', 2.0)
+    optimization_mode = _config.get('optimization_mode', 'balanced')
+
     for _, driver in available_drivers.iterrows():
         if driver['driver_id'] in used_driver_ids:
             continue
 
-        # Check capacity
-        if driver['capacity'] < cluster_size:
+        # Strict capacity check for route_efficiency mode
+        if optimization_mode == "route_efficiency" and driver['capacity'] < cluster_size:
+            continue
+        elif driver['capacity'] < cluster_size:
             continue
 
-        # Calculate sequence-aware route cost
-        route_cost, sequence, normalized_turning_score = calculate_sequence_aware_route_cost(
+        # Calculate route cost
+        route_cost, sequence, mean_turning_degrees = calculate_improved_route_cost(
             driver, cluster_users, office_lat, office_lon
         )
 
-        # Priority penalty (lower priority = higher penalty)
-        priority_penalty = driver['priority'] * 2.0
+        # Priority penalty
+        priority_penalty = driver['priority'] * 0.5
 
-        # Utilization bonus (prefer fuller vehicles)
+        # Mode-specific utilization calculation
         utilization = cluster_size / driver['capacity']
-        utilization_bonus = utilization * 3.0
+        
+        if optimization_mode == "capacity_optimized":
+            # Heavy penalty for underutilization in capacity mode
+            utilization_bonus = utilization * capacity_weight * 2.0
+            if utilization < 0.7:
+                utilization_bonus -= (0.7 - utilization) * 5.0  # Heavy penalty
+        elif optimization_mode == "route_efficiency":
+            # Light penalty for underutilization in efficiency mode
+            utilization_bonus = utilization * capacity_weight * 0.5
+        else:  # balanced
+            utilization_bonus = utilization * capacity_weight
 
-        # Adaptive zigzag penalty based on route characteristics
-        base_zigzag_weight = _config.get('zigzag_penalty_weight', 2.0)
+        # Mode-specific zigzag penalty
+        route_length_factor = max(1.0, cluster_size / 3.0)
+        zigzag_penalty_weight = _config.get('zigzag_penalty_weight', 3.0) * direction_weight
         
-        # Scale penalty by route characteristics
-        route_length_factor = max(1.0, cluster_size / 5.0)  # Heavier penalty on short routes
-        adaptive_zigzag_weight = base_zigzag_weight / route_length_factor
-        
-        # Normalized turning penalty (now in same scale as km)
-        zigzag_penalty = normalized_turning_score * adaptive_zigzag_weight
+        if optimization_mode == "route_efficiency":
+            # Very high penalty for zigzag in efficiency mode
+            zigzag_penalty = mean_turning_degrees * zigzag_penalty_weight / 50.0
+        elif optimization_mode == "capacity_optimized":
+            # Lower penalty for zigzag in capacity mode
+            zigzag_penalty = mean_turning_degrees * zigzag_penalty_weight / 150.0
+        else:  # balanced
+            zigzag_penalty = mean_turning_degrees * zigzag_penalty_weight / 100.0
 
         total_cost = route_cost + priority_penalty - utilization_bonus + zigzag_penalty
 
@@ -774,7 +887,6 @@ def assign_best_driver_to_cluster(cluster_users, available_drivers,
             best_sequence = sequence
 
     if best_driver is not None:
-        # Update used driver ID and sequence
         used_driver_ids.add(best_driver['driver_id'])
 
         route = {
@@ -790,7 +902,6 @@ def assign_best_driver_to_cluster(cluster_users, available_drivers,
         users_to_assign = cluster_users[cluster_users['user_id'].isin(
             [u['user_id'] for u in best_sequence])]
         
-        # Ensure users are added in the correct sequence
         ordered_users_to_assign = []
         for seq_user in best_sequence:
             for _, cluster_user in users_to_assign.iterrows():
@@ -813,14 +924,14 @@ def assign_best_driver_to_cluster(cluster_users, available_drivers,
 
             route['assigned_users'].append(user_data)
 
-        # Calculate route metrics
-        update_route_metrics(route, office_lat, office_lon)
+        update_route_metrics_improved(route, office_lat, office_lon)
         return route
 
     return None
 
-def calculate_sequence_aware_route_cost(driver, cluster_users, office_lat, office_lon):
-    """Calculate actual route cost including pickup sequence and normalized turning penalty"""
+
+def calculate_improved_route_cost(driver, cluster_users, office_lat, office_lon):
+    """Calculate route cost with mode-specific penalties"""
     if len(cluster_users) == 0:
         return float('inf'), [], 0
 
@@ -828,11 +939,11 @@ def calculate_sequence_aware_route_cost(driver, cluster_users, office_lat, offic
     office_pos = (office_lat, office_lon)
 
     # Get optimal pickup sequence
-    sequence = calculate_optimal_sequence(driver_pos, cluster_users, office_pos)
+    sequence = calculate_optimal_sequence_improved(driver_pos, cluster_users, office_pos)
 
     # Calculate total route distance
     total_distance = 0
-    turning_angles = []
+    bearing_differences = []
 
     # Driver to first pickup
     if sequence:
@@ -842,7 +953,7 @@ def calculate_sequence_aware_route_cost(driver, cluster_users, office_lat, offic
             first_user['latitude'], first_user['longitude']
         )
 
-    # Between pickups
+    # Between pickups - calculate bearing differences
     for i in range(len(sequence) - 1):
         current_user = sequence[i]
         next_user = sequence[i + 1]
@@ -853,22 +964,20 @@ def calculate_sequence_aware_route_cost(driver, cluster_users, office_lat, offic
         )
         total_distance += distance
 
-        # Calculate turning angle
+        # Calculate bearing difference between segments
         if i == 0:
-            # Angle from driver->current->next
-            prev_pos = driver_pos
+            prev_bearing = calculate_bearing(driver_pos[0], driver_pos[1], 
+                                           current_user['latitude'], current_user['longitude'])
         else:
             prev_pos = (sequence[i-1]['latitude'], sequence[i-1]['longitude'])
+            prev_bearing = calculate_bearing(prev_pos[0], prev_pos[1],
+                                           current_user['latitude'], current_user['longitude'])
 
-        current_pos = (current_user['latitude'], current_user['longitude'])
-        next_pos = (next_user['latitude'], next_user['longitude'])
+        next_bearing = calculate_bearing(current_user['latitude'], current_user['longitude'],
+                                       next_user['latitude'], next_user['longitude'])
 
-        turning_angle = calculate_turning_angle(prev_pos, current_pos, next_pos)
-        # Square large angles to heavily penalize reversals
-        angle_penalty = abs(turning_angle)
-        if angle_penalty > 90:
-            angle_penalty = angle_penalty ** 1.5  # Exponential penalty for large turns
-        turning_angles.append(angle_penalty)
+        bearing_diff = bearing_difference(prev_bearing, next_bearing)
+        bearing_differences.append(bearing_diff)
 
     # Last pickup to office
     if sequence:
@@ -878,17 +987,14 @@ def calculate_sequence_aware_route_cost(driver, cluster_users, office_lat, offic
             office_lat, office_lon
         )
 
-    # Calculate normalized turning score
-    raw_turning_score = sum(turning_angles) / len(turning_angles) if turning_angles else 0
-    
-    # Normalize to [0,1] range where 1 = max_allowed_turning_score
-    max_allowed_turning = _config.get('max_allowed_turning_score', 40)
-    normalized_turning_score = min(raw_turning_score / max_allowed_turning, 2.0)  # Cap at 2x
+    # Calculate mean turning angle
+    mean_turning_degrees = sum(bearing_differences) / len(bearing_differences) if bearing_differences else 0
 
-    return total_distance, sequence, normalized_turning_score
+    return total_distance, sequence, mean_turning_degrees
 
-def calculate_optimal_sequence(driver_pos, cluster_users, office_pos):
-    """Calculate optimal pickup sequence using geodesic bearing+distance projection"""
+
+def calculate_optimal_sequence_improved(driver_pos, cluster_users, office_pos):
+    """Calculate optimal pickup sequence using geodesic bearing projection with outlier detection"""
     if len(cluster_users) <= 1:
         return cluster_users.to_dict('records') if hasattr(cluster_users, 'to_dict') else list(cluster_users)
 
@@ -912,41 +1018,32 @@ def calculate_optimal_sequence(driver_pos, cluster_users, office_pos):
         bearing_diff_rad = math.radians(abs(bearing_diff))
         
         # Geodesic projection: distance * cos(bearing_difference)
-        # Users aligned with route direction get higher scores (sorted first)
         return distance * math.cos(bearing_diff_rad)
 
     users_list.sort(key=geodesic_projection_score, reverse=True)
 
-    # Apply local 2-opt improvement while respecting directional constraints
-    return apply_direction_aware_2opt(users_list, driver_pos, office_pos)
+    # Apply improved 2-opt with strict direction constraints
+    return apply_strict_direction_aware_2opt(users_list, driver_pos, office_pos, main_route_bearing)
 
-def apply_direction_aware_2opt(sequence, driver_pos, office_pos):
-    """Apply 2-opt improvements with adaptive turning angle constraints"""
+
+def apply_strict_direction_aware_2opt(sequence, driver_pos, office_pos, main_bearing):
+    """Apply 2-opt improvements with strict bearing-based constraints"""
     if len(sequence) <= 2:
         return sequence
 
     improved = True
+    max_iterations = 3
+    iteration = 0
     
-    # Stricter adaptive max turning angle based on route length
-    base_max_turning_angle = _config.get('max_turning_angle_base', 45)  # Reduced from 60
-    route_length = len(sequence)
-    
-    # Much tighter constraints for shorter routes where backtracking is avoidable
-    if route_length <= 3:
-        max_turning_angle = base_max_turning_angle * 0.6  # ~27 degrees
-    elif route_length <= 5:
-        max_turning_angle = base_max_turning_angle * 0.75  # ~34 degrees
-    else:
-        max_turning_angle = base_max_turning_angle  # 45 degrees
+    # Strict turning angle threshold based on route characteristics
+    max_turning_threshold = _config.get('MAX_TURNING_ANGLE', 35)
 
-    # Calculate initial quality to determine strictness
-    initial_turning = calculate_sequence_turning_score(sequence, driver_pos, office_pos)
-    is_poor_quality = initial_turning > _config.get('max_allowed_turning_score', 35)
-
-    while improved:
+    while improved and iteration < max_iterations:
         improved = False
+        iteration += 1
+        
         best_distance = calculate_sequence_distance(sequence, driver_pos, office_pos)
-        best_turning_score = calculate_sequence_turning_score(sequence, driver_pos, office_pos)
+        best_turning_score = calculate_sequence_turning_score_improved(sequence, driver_pos, office_pos)
 
         for i in range(len(sequence) - 1):
             for j in range(i + 2, len(sequence)):
@@ -955,51 +1052,68 @@ def apply_direction_aware_2opt(sequence, driver_pos, office_pos):
 
                 # Calculate new metrics
                 new_distance = calculate_sequence_distance(new_sequence, driver_pos, office_pos)
-                new_turning_score = calculate_sequence_turning_score(new_sequence, driver_pos, office_pos)
+                new_turning_score = calculate_sequence_turning_score_improved(new_sequence, driver_pos, office_pos)
                 
-                # Stricter acceptance criteria for poor quality routes
-                if is_poor_quality:
-                    # For poor routes, require both distance AND turning improvement
-                    distance_improved = new_distance < best_distance * 0.98  # At least 2% improvement
-                    turning_improved = new_turning_score < best_turning_score * 0.95  # At least 5% improvement
-                    
-                    if distance_improved and turning_improved:
-                        sequence = new_sequence
-                        best_distance = new_distance
-                        best_turning_score = new_turning_score
-                        improved = True
-                        break
-                else:
-                    # For good routes, use relaxed criteria
-                    distance_improved = new_distance < best_distance
-                    turning_acceptable = (new_turning_score <= best_turning_score + 3.0 or  # Less degradation allowed
-                                        new_turning_score <= max_turning_angle)
-                    
-                    if distance_improved and turning_acceptable:
-                        sequence = new_sequence
-                        best_distance = new_distance
-                        best_turning_score = new_turning_score
-                        improved = True
-                        break
+                # Strict acceptance criteria: both distance AND direction must improve or maintain quality
+                distance_improved = new_distance < best_distance * 0.995  # At least 0.5% improvement
+                turning_acceptable = new_turning_score <= max(best_turning_score, max_turning_threshold)
+                
+                # For strict direction compliance, require combined improvement
+                combined_improvement = (best_distance - new_distance) + (best_turning_score - new_turning_score) * 0.1
+                
+                if distance_improved and turning_acceptable and combined_improvement > 0.01:
+                    sequence = new_sequence
+                    best_distance = new_distance
+                    best_turning_score = new_turning_score
+                    improved = True
+                    break
             if improved:
                 break
 
     return sequence
 
 
-def calculate_sequence_turning_score(sequence, driver_pos, office_pos):
-    """Calculate average turning angle for a sequence"""
+def calculate_sequence_turning_score_improved(sequence, driver_pos, office_pos):
+    """Calculate average bearing difference for a sequence"""
     if len(sequence) <= 1:
         return 0
 
-    users_format = []
-    for user in sequence:
-        if 'lat' in user:
-            users_format.append(user)
+    bearing_differences = []
+    
+    for i in range(len(sequence)):
+        if i == 0:
+            # Bearing from driver to first user
+            prev_bearing = calculate_bearing(driver_pos[0], driver_pos[1], 
+                                           sequence[i]['latitude'], sequence[i]['longitude'])
+            if len(sequence) == 1:
+                # Single user: bearing from user to office
+                next_bearing = calculate_bearing(sequence[i]['latitude'], sequence[i]['longitude'],
+                                               office_pos[0], office_pos[1])
+                bearing_diff = bearing_difference(prev_bearing, next_bearing)
+                bearing_differences.append(bearing_diff)
+            continue
+            
+        # Bearing from previous to current
+        prev_pos = (sequence[i-1]['latitude'], sequence[i-1]['longitude'])
+        current_pos = (sequence[i]['latitude'], sequence[i]['longitude'])
+        current_bearing = calculate_bearing(prev_pos[0], prev_pos[1], current_pos[0], current_pos[1])
+        
+        if i == len(sequence) - 1:
+            # Last user: bearing from current to office
+            next_bearing = calculate_bearing(current_pos[0], current_pos[1], office_pos[0], office_pos[1])
         else:
-            users_format.append({'lat': user['latitude'], 'lng': user['longitude']})
+            # Bearing from current to next
+            next_pos = (sequence[i+1]['latitude'], sequence[i+1]['longitude'])
+            next_bearing = calculate_bearing(current_pos[0], current_pos[1], next_pos[0], next_pos[1])
+        
+        bearing_diff = bearing_difference(prev_bearing, current_bearing) if i > 0 else 0
+        if bearing_diff > 0:
+            bearing_differences.append(bearing_diff)
+        
+        prev_bearing = current_bearing
 
-    return calculate_route_turning_score(users_format, driver_pos, office_pos)
+    return sum(bearing_differences) / len(bearing_differences) if bearing_differences else 0
+
 
 def calculate_sequence_distance(sequence, driver_pos, office_pos):
     """Calculate total distance for a pickup sequence"""
@@ -1022,60 +1136,21 @@ def calculate_sequence_distance(sequence, driver_pos, office_pos):
 
     return total
 
-def has_acceptable_turns(sequence, driver_pos, office_pos, max_angle):
-    """Check if sequence has acceptable turning angles"""
-    if len(sequence) <= 1:
-        return True
 
-    for i in range(len(sequence)):
-        if i == 0:
-            prev_pos = driver_pos
-        else:
-            prev_pos = (sequence[i-1]['latitude'], sequence[i-1]['longitude'])
-
-        current_pos = (sequence[i]['latitude'], sequence[i]['longitude'])
-
-        if i == len(sequence) - 1:
-            next_pos = office_pos
-        else:
-            next_pos = (sequence[i+1]['latitude'], sequence[i+1]['longitude'])
-
-        turning_angle = abs(calculate_turning_angle(prev_pos, current_pos, next_pos))
-        if turning_angle > max_angle:
-            return False
-
-    return True
-
-def calculate_turning_angle(prev_pos, current_pos, next_pos):
-    """Calculate turning angle at current position"""
-    import math
-
-    # Vectors
-    v1 = (current_pos[0] - prev_pos[0], current_pos[1] - prev_pos[1])
-    v2 = (next_pos[0] - current_pos[0], next_pos[1] - current_pos[1])
-
-    # Calculate angle between vectors
-    dot_product = v1[0] * v2[0] + v1[1] * v2[1]
-    mag1 = math.sqrt(v1[0]**2 + v1[1]**2)
-    mag2 = math.sqrt(v2[0]**2 + v2[1]**2)
-
-    if mag1 == 0 or mag2 == 0:
-        return 0
-
-    cos_angle = dot_product / (mag1 * mag2)
-    cos_angle = max(-1, min(1, cos_angle))  # Clamp to valid range
-
-    angle_rad = math.acos(cos_angle)
-    angle_deg = math.degrees(angle_rad)
-
-    return angle_deg
+def normalize_bearing_difference(diff):
+    """Normalize bearing difference to [-180, 180] range"""
+    while diff > 180:
+        diff -= 360
+    while diff < -180:
+        diff += 360
+    return diff
 
 
 def apply_route_splitting(routes, available_drivers, used_driver_ids, office_lat, office_lon):
     """Split routes with poor quality metrics into better sub-routes"""
     split_routes = []
     
-    turning_threshold = _config.get('route_split_turning_threshold', 30)
+    turning_threshold = _config.get('route_split_turning_threshold', 35)
     consistency_threshold = _config.get('route_split_consistency_threshold', 0.7)
     
     for route in routes:
@@ -1087,8 +1162,8 @@ def apply_route_splitting(routes, available_drivers, used_driver_ids, office_lat
         driver_pos = (route['latitude'], route['longitude'])
         office_pos = (office_lat, office_lon)
         
-        turning_score = calculate_route_turning_score(route['assigned_users'], driver_pos, office_pos)
-        direction_consistency = calculate_direction_consistency(route['assigned_users'], driver_pos, office_pos)
+        turning_score = calculate_route_turning_score_improved(route['assigned_users'], driver_pos, office_pos)
+        direction_consistency = calculate_direction_consistency_improved(route['assigned_users'], driver_pos, office_pos)
         
         # Check if route needs splitting
         needs_split = (turning_score > turning_threshold or 
@@ -1098,7 +1173,7 @@ def apply_route_splitting(routes, available_drivers, used_driver_ids, office_lat
             print(f"  🔄 Splitting route {route['driver_id']} - turning: {turning_score:.1f}°, consistency: {direction_consistency:.2f}")
             
             # Split route by bearing sectors
-            sub_routes = split_route_by_bearing(route, available_drivers, used_driver_ids, office_lat, office_lon)
+            sub_routes = split_route_by_bearing_improved(route, available_drivers, used_driver_ids, office_lat, office_lon)
             split_routes.extend(sub_routes)
         else:
             split_routes.append(route)
@@ -1106,76 +1181,105 @@ def apply_route_splitting(routes, available_drivers, used_driver_ids, office_lat
     return split_routes
 
 
-def split_route_by_bearing(route, available_drivers, used_driver_ids, office_lat, office_lon):
-    """Split a route into bearing-consistent sub-routes"""
+def split_route_by_bearing_improved(route, available_drivers, used_driver_ids, office_lat, office_lon):
+    """Split a route into bearing-consistent sub-routes with capacity-aware clustering"""
     users = route['assigned_users']
     if len(users) <= 2:
         return [route]
     
-    # Calculate bearings from office to each user
+    # Calculate bearings from office to each user and cluster them
     user_bearings = []
+    coords_km = []
     for user in users:
         bearing = calculate_bearing(office_lat, office_lon, user['lat'], user['lng'])
         user_bearings.append((user, bearing))
+        lat_km, lon_km = coords_to_km(user['lat'], user['lng'], office_lat, office_lon)
+        coords_km.append([lat_km, lon_km, math.sin(math.radians(bearing)), math.cos(math.radians(bearing))])
     
-    # Sort by bearing and split into 2 groups
-    user_bearings.sort(key=lambda x: x[1])
-    mid_point = len(user_bearings) // 2
+    # Use K-means with bearing features for intelligent splitting
+    coords_with_bearing = np.array(coords_km)
+    kmeans = KMeans(n_clusters=2, random_state=42, n_init=10)
+    split_labels = kmeans.fit_predict(coords_with_bearing)
     
-    group1_users = [ub[0] for ub in user_bearings[:mid_point]]
-    group2_users = [ub[0] for ub in user_bearings[mid_point:]]
+    group1 = [user for i, (user, _) in enumerate(user_bearings) if split_labels[i] == 0]
+    group2 = [user for i, (user, _) in enumerate(user_bearings) if split_labels[i] == 1]
     
     sub_routes = []
     
-    # Create route for group 1
-    if group1_users:
-        route1 = create_sub_route(route, group1_users, available_drivers, used_driver_ids, office_lat, office_lon)
-        if route1:
-            sub_routes.append(route1)
+    # Create route for group 1 (keep original driver)
+    if group1:
+        route1 = route.copy()
+        route1['assigned_users'] = group1
+        sub_routes.append(route1)
     
-    # Create route for group 2
-    if group2_users:
-        route2 = create_sub_route(route, group2_users, available_drivers, used_driver_ids, office_lat, office_lon)
+    # Create route for group 2 (find new driver)
+    if group2:
+        route2 = create_sub_route_improved(route, group2, available_drivers, used_driver_ids, office_lat, office_lon)
         if route2:
             sub_routes.append(route2)
+        else:
+            # If no driver available, merge back with first group
+            if sub_routes:
+                sub_routes[0]['assigned_users'].extend(group2)
     
-    # If couldn't split (no available drivers), return original
-    if not sub_routes:
-        return [route]
+    # Optimize sequences and update metrics for all split routes
+    for sub_route in sub_routes:
+        sub_route = optimize_route_sequence_improved(sub_route, office_lat, office_lon)
+        update_route_metrics_improved(sub_route, office_lat, office_lon)
     
-    return sub_routes
+    return sub_routes if len(sub_routes) > 1 else [route]
 
 
-def create_sub_route(original_route, users, available_drivers, used_driver_ids, office_lat, office_lon):
-    """Create a new sub-route from split users"""
+def create_sub_route_improved(original_route, users, available_drivers, used_driver_ids, office_lat, office_lon):
+    """Create a new sub-route from split users with improved driver selection"""
     # Try to find an available driver
+    users_center = calculate_users_center_improved(users)
+    best_driver = None
+    best_score = float('inf')
+    
     for _, driver in available_drivers.iterrows():
         if driver['driver_id'] in used_driver_ids:
             continue
         if driver['capacity'] < len(users):
             continue
             
+        # Calculate suitability score
+        distance = haversine_distance(driver['latitude'], driver['longitude'], 
+                                    users_center[0], users_center[1])
+        utilization = len(users) / driver['capacity']
+        score = distance - (utilization * 2.0)  # Prefer higher utilization
+        
+        if score < best_score:
+            best_score = score
+            best_driver = driver
+    
+    if best_driver is not None:
         # Create new route
         new_route = {
-            'driver_id': str(driver['driver_id']),
-            'vehicle_id': str(driver.get('vehicle_id', '')),
-            'vehicle_type': int(driver['capacity']),
-            'latitude': float(driver['latitude']),
-            'longitude': float(driver['longitude']),
+            'driver_id': str(best_driver['driver_id']),
+            'vehicle_id': str(best_driver.get('vehicle_id', '')),
+            'vehicle_type': int(best_driver['capacity']),
+            'latitude': float(best_driver['latitude']),
+            'longitude': float(best_driver['longitude']),
             'assigned_users': users
         }
         
-        # Optimize sequence and update metrics
-        new_route = optimize_route_sequence(new_route, office_lat, office_lon)
-        update_route_metrics(new_route, office_lat, office_lon)
-        
         # Mark driver as used
-        used_driver_ids.add(driver['driver_id'])
+        used_driver_ids.add(best_driver['driver_id'])
         
         return new_route
     
-    # If no driver available, return None
     return None
+
+
+def calculate_users_center_improved(users):
+    """Calculate center point of a list of users"""
+    if not users:
+        return (0, 0)
+
+    avg_lat = sum(u['lat'] for u in users) / len(users)
+    avg_lng = sum(u['lng'] for u in users) / len(users)
+    return (avg_lat, avg_lng)
 
 
 # STEP 4: LOCAL OPTIMIZATION
@@ -1193,109 +1297,37 @@ def local_optimization(routes, office_lat, office_lon):
         iterations += 1
 
         # Optimize user sequence within each route
-        for route in routes:
-            original_sequence = route['assigned_users'].copy()
-            route = optimize_route_sequence(route, office_lat, office_lon)
-            if route['assigned_users'] != original_sequence:
+        for i, route in enumerate(routes):
+            original_metrics = (
+                calculate_route_turning_score_improved(route['assigned_users'], 
+                                                     (route['latitude'], route['longitude']), 
+                                                     (office_lat, office_lon)),
+                calculate_route_cost_improved(route, office_lat, office_lon)
+            )
+            
+            optimized_route = optimize_route_sequence_improved(route, office_lat, office_lon)
+            routes[i] = optimized_route
+            
+            new_metrics = (
+                calculate_route_turning_score_improved(optimized_route['assigned_users'], 
+                                                     (optimized_route['latitude'], optimized_route['longitude']), 
+                                                     (office_lat, office_lon)),
+                calculate_route_cost_improved(optimized_route, office_lat, office_lon)
+            )
+            
+            if new_metrics != original_metrics:
                 improved = True
         
-        # Try swapping users between nearby routes
-        if try_user_swap(routes, office_lat, office_lon, _config):
+        # Try swapping users between nearby routes with strict quality control
+        if try_user_swap_improved(routes, office_lat, office_lon):
             improved = True
 
     print(f"  ✅ Local optimization completed in {iterations} iterations")
     return routes
 
-def calculate_route_cost_with_quality(route, office_lat, office_lon):
-    """Calculate route cost including distance and directional quality metrics"""
-    if not route['assigned_users']:
-        return 0, {'turning_score': 0, 'tortuosity': 1.0}
 
-    # Calculate basic distance cost
-    distance_cost = calculate_route_cost(route, office_lat, office_lon)
-
-    # Calculate quality metrics
-    driver_pos = (route['latitude'], route['longitude'])
-    office_pos = (office_lat, office_lon)
-
-    turning_score = calculate_route_turning_score(route['assigned_users'], driver_pos, office_pos)
-    tortuosity = calculate_tortuosity_ratio(route['assigned_users'], driver_pos, office_pos)
-
-    quality_metrics = {
-        'turning_score': turning_score,
-        'tortuosity': tortuosity
-    }
-
-    return distance_cost, quality_metrics
-
-
-def calculate_route_cost(route, office_lat, office_lon):
-    """Calculate cost of a route based on distances"""
-    if not route['assigned_users']:
-        return 0
-
-    total_cost = 0
-    driver_pos = (route['latitude'], route['longitude'])
-    office_pos = (office_lat, office_lon)
-
-    # Cost from driver to users (in sequence)
-    current_pos = driver_pos
-    for user in route['assigned_users']:
-        user_pos = (user['lat'], user['lng'])
-        total_cost += haversine_distance(current_pos[0], current_pos[1],
-                                         user_pos[0], user_pos[1])
-        current_pos = user_pos
-
-    # Cost from last user to office
-    total_cost += haversine_distance(current_pos[0], current_pos[1],
-                                     office_pos[0], office_pos[1])
-    
-    # Add penalty for low utilization
-    utilization = len(route['assigned_users']) / route['vehicle_type']
-    if utilization < _config['LOW_UTILIZATION_THRESHOLD']:
-        total_cost += (_config['LOW_UTILIZATION_THRESHOLD'] - utilization) * 5.0 # Penalty for very low utilization
-
-    return total_cost
-
-
-def update_route_metrics(route, office_lat, office_lon):
-    """Update route metrics after modifications (sequence, assignments)"""
-    if route['assigned_users']:
-        # Recalculate sequence and metrics if users exist
-        driver_pos = (route['latitude'], route['longitude'])
-        office_pos = (office_lat, office_lon)
-        
-        # Ensure users are in a format suitable for sequencing
-        users_for_sequencing = [{'latitude': u['lat'], 'longitude': u['lng'], 'user_id': u['user_id']} 
-                                for u in route['assigned_users']]
-
-        # Re-optimize sequence and update route with new metrics
-        optimized_sequence = calculate_optimal_sequence(driver_pos, users_for_sequencing, office_pos)
-        
-        final_sequence = []
-        for seq_user in optimized_sequence:
-            for orig_user in route['assigned_users']:
-                if orig_user['user_id'] == seq_user['user_id']:
-                    final_sequence.append(orig_user)
-                    break
-        route['assigned_users'] = final_sequence
-
-        route['centroid'] = calculate_users_center(route['assigned_users'])
-        route['utilization'] = len(route['assigned_users']) / route['vehicle_type']
-        route['turning_score'] = calculate_route_turning_score(route['assigned_users'], driver_pos, office_pos)
-        route['tortuosity_ratio'] = calculate_tortuosity_ratio(route['assigned_users'], driver_pos, office_pos)
-        route['direction_consistency'] = calculate_direction_consistency(route['assigned_users'], driver_pos, office_pos)
-    else:
-        # If route becomes empty, reset metrics
-        route['centroid'] = [route['latitude'], route['longitude']]
-        route['utilization'] = 0
-        route['turning_score'] = 0
-        route['tortuosity_ratio'] = 1.0
-        route['direction_consistency'] = 1.0
-
-
-def optimize_route_sequence(route, office_lat, office_lon):
-    """Optimize pickup sequence using direction-aware sorting and local optimization"""
+def optimize_route_sequence_improved(route, office_lat, office_lon):
+    """Optimize pickup sequence using improved direction-aware sorting"""
     if not route['assigned_users'] or len(route['assigned_users']) <= 1:
         return route
 
@@ -1312,8 +1344,8 @@ def optimize_route_sequence(route, office_lat, office_lon):
             'user_id': user['user_id']
         })
 
-    # Calculate optimal sequence using direction-aware method
-    optimized_sequence = calculate_optimal_sequence(driver_pos, users_for_sequencing, office_pos)
+    # Calculate optimal sequence using improved method
+    optimized_sequence = calculate_optimal_sequence_improved(driver_pos, users_for_sequencing, office_pos)
 
     # Convert back to original format
     final_sequence = []
@@ -1324,16 +1356,42 @@ def optimize_route_sequence(route, office_lat, office_lon):
                 break
 
     route['assigned_users'] = final_sequence
-
-    # Add route quality metrics
-    route['turning_score'] = calculate_route_turning_score(final_sequence, driver_pos, office_pos)
-    route['tortuosity_ratio'] = calculate_tortuosity_ratio(final_sequence, driver_pos, office_pos)
-    route['direction_consistency'] = calculate_direction_consistency(final_sequence, driver_pos, office_pos)
-
     return route
 
-def calculate_route_turning_score(users, driver_pos, office_pos):
-    """Calculate the average turning angle for a route with input validation"""
+
+def calculate_route_cost_improved(route, office_lat, office_lon):
+    """Calculate cost of a route with improved penalty structure"""
+    if not route['assigned_users']:
+        return 0
+
+    # Basic distance cost
+    total_cost = 0
+    driver_pos = (route['latitude'], route['longitude'])
+    office_pos = (office_lat, office_lon)
+
+    # Cost from driver to users (in sequence)
+    current_pos = driver_pos
+    for user in route['assigned_users']:
+        user_pos = (user['lat'], user['lng'])
+        total_cost += haversine_distance(current_pos[0], current_pos[1],
+                                         user_pos[0], user_pos[1])
+        current_pos = user_pos
+
+    # Cost from last user to office
+    total_cost += haversine_distance(current_pos[0], current_pos[1],
+                                     office_pos[0], office_pos[1])
+    
+    # Reduced penalty for low utilization (rebalanced)
+    utilization = len(route['assigned_users']) / route['vehicle_type']
+    if utilization < _config['LOW_UTILIZATION_THRESHOLD']:
+        utilization_penalty = (_config['LOW_UTILIZATION_THRESHOLD'] - utilization) * 2.0  # Reduced from 5.0
+        total_cost += utilization_penalty
+
+    return total_cost
+
+
+def calculate_route_turning_score_improved(users, driver_pos, office_pos):
+    """Calculate the average turning angle for a route using proper bearing calculations"""
     if len(users) <= 1:
         return 0
 
@@ -1342,35 +1400,185 @@ def calculate_route_turning_score(users, driver_pos, office_pos):
         if 'lat' not in user or 'lng' not in user:
             raise ValueError(f"User missing required keys 'lat'/'lng': {user.keys()}")
 
-    turning_angles = []
+    bearing_differences = []
+    prev_bearing = None
 
-    for i in range(len(users)):
+    # Calculate bearing differences between consecutive segments
+    for i in range(len(users) + 1):  # +1 to include office segment
         if i == 0:
-            prev_pos = driver_pos
+            # Driver to first user
+            current_bearing = calculate_bearing(driver_pos[0], driver_pos[1], 
+                                              users[0]['lat'], users[0]['lng'])
+        elif i == len(users):
+            # Last user to office
+            current_bearing = calculate_bearing(users[i-1]['lat'], users[i-1]['lng'],
+                                              office_pos[0], office_pos[1])
         else:
-            prev_pos = (users[i-1]['lat'], users[i-1]['lng'])
+            # Between users
+            current_bearing = calculate_bearing(users[i-1]['lat'], users[i-1]['lng'],
+                                              users[i]['lat'], users[i]['lng'])
+        
+        if prev_bearing is not None:
+            bearing_diff = bearing_difference(prev_bearing, current_bearing)
+            bearing_differences.append(bearing_diff)
+        
+        prev_bearing = current_bearing
 
-        current_pos = (users[i]['lat'], users[i]['lng'])
+    return sum(bearing_differences) / len(bearing_differences) if bearing_differences else 0
 
-        if i == len(users) - 1:
-            next_pos = office_pos
-        else:
-            next_pos = (users[i+1]['lat'], users[i+1]['lng'])
 
-        angle = calculate_turning_angle(prev_pos, current_pos, next_pos)
-        turning_angles.append(abs(angle))
-
-    return sum(turning_angles) / len(turning_angles) if turning_angles else 0
-
-def calculate_tortuosity_ratio(users, driver_pos, office_pos):
-    """Calculate ratio of actual route length to straight line distance with validation"""
-    if not users:
+def calculate_direction_consistency_improved(users, driver_pos, office_pos):
+    """Calculate direction consistency using proper bearing analysis"""
+    if len(users) <= 1:
         return 1.0
 
-    # Validate user format
-    for user in users:
-        if 'lat' not in user or 'lng' not in user:
-            raise ValueError(f"User missing required keys 'lat'/'lng': {user.keys()}")
+    # Calculate main route bearing (driver to office)
+    main_bearing = calculate_bearing(driver_pos[0], driver_pos[1], office_pos[0], office_pos[1])
+
+    consistent_segments = 0
+    total_segments = 0
+
+    # Check each segment against main direction
+    for i in range(len(users) + 1):  # +1 to include office segment
+        if i == 0:
+            # Driver to first user
+            segment_bearing = calculate_bearing(driver_pos[0], driver_pos[1], 
+                                              users[0]['lat'], users[0]['lng'])
+        elif i == len(users):
+            # Last user to office
+            if len(users) > 0:
+                segment_bearing = calculate_bearing(users[i-1]['lat'], users[i-1]['lng'],
+                                                  office_pos[0], office_pos[1])
+            else:
+                continue
+        else:
+            # Between users
+            segment_bearing = calculate_bearing(users[i-1]['lat'], users[i-1]['lng'],
+                                              users[i]['lat'], users[i]['lng'])
+
+        bearing_diff = bearing_difference(segment_bearing, main_bearing)
+        if bearing_diff <= 45:  # Within 45 degrees of main direction
+            consistent_segments += 1
+        total_segments += 1
+
+    return consistent_segments / total_segments if total_segments > 0 else 1.0
+
+
+def try_user_swap_improved(routes, office_lat, office_lon):
+    """Try swapping users between routes with improved quality control"""
+    improvements = 0
+    threshold = _config.get('SWAP_IMPROVEMENT_THRESHOLD', 0.5)
+
+    for i in range(len(routes)):
+        for j in range(i + 1, len(routes)):
+            route1, route2 = routes[i], routes[j]
+
+            if not route1['assigned_users'] or not route2['assigned_users']:
+                continue
+
+            # Calculate distance between route centers
+            center1 = calculate_route_center_improved(route1)
+            center2 = calculate_route_center_improved(route2)
+            route_distance = haversine_distance(center1[0], center1[1], center2[0], center2[1])
+            
+            # Skip distant route swaps
+            max_swap_distance = _config.get('MERGE_DISTANCE_KM', 1.5) * 2.0
+            if route_distance > max_swap_distance:
+                continue
+
+            # Try swapping each user from route1 to route2
+            for user1 in route1['assigned_users'][:]:
+                if (len(route2['assigned_users']) + 1 <= route2['vehicle_type']
+                        and len(route1['assigned_users']) > 1):
+
+                    # Calculate current metrics
+                    cost1_before = calculate_route_cost_improved(route1, office_lat, office_lon)
+                    cost2_before = calculate_route_cost_improved(route2, office_lat, office_lon)
+                    turn1_before = calculate_route_turning_score_improved(
+                        route1['assigned_users'], 
+                        (route1['latitude'], route1['longitude']), 
+                        (office_lat, office_lon)
+                    )
+                    turn2_before = calculate_route_turning_score_improved(
+                        route2['assigned_users'], 
+                        (route2['latitude'], route2['longitude']), 
+                        (office_lat, office_lon)
+                    )
+
+                    # Perform swap
+                    route1['assigned_users'].remove(user1)
+                    route2['assigned_users'].append(user1)
+
+                    # Recalculate with optimized sequences
+                    route1_optimized = optimize_route_sequence_improved(route1, office_lat, office_lon)
+                    route2_optimized = optimize_route_sequence_improved(route2, office_lat, office_lon)
+
+                    cost1_after = calculate_route_cost_improved(route1_optimized, office_lat, office_lon)
+                    cost2_after = calculate_route_cost_improved(route2_optimized, office_lat, office_lon)
+                    turn1_after = calculate_route_turning_score_improved(
+                        route1_optimized['assigned_users'], 
+                        (route1_optimized['latitude'], route1_optimized['longitude']), 
+                        (office_lat, office_lon)
+                    )
+                    turn2_after = calculate_route_turning_score_improved(
+                        route2_optimized['assigned_users'], 
+                        (route2_optimized['latitude'], route2_optimized['longitude']), 
+                        (office_lat, office_lon)
+                    )
+
+                    # Combined improvement check with proper weighting
+                    distance_improvement = (cost1_before + cost2_before) - (cost1_after + cost2_after)
+                    turning_improvement = (turn1_before + turn2_before) - (turn1_after + turn2_after)
+                    
+                    # Weight turning improvement more heavily (convert degrees to km-equivalent)
+                    total_improvement = distance_improvement + (turning_improvement * 0.05)  # ~5km per degree
+
+                    if total_improvement > threshold:
+                        improvements += 1
+                        # Keep the optimized sequences
+                        routes[i] = route1_optimized
+                        routes[j] = route2_optimized
+                    else:
+                        # Revert swap
+                        route2['assigned_users'].remove(user1)
+                        route1['assigned_users'].append(user1)
+
+    return improvements > 0
+
+
+def calculate_route_center_improved(route):
+    """Calculate the geometric center of users in a route"""
+    if not route['assigned_users']:
+        return (route['latitude'], route['longitude'])
+    
+    lats = [u['lat'] for u in route['assigned_users']]
+    lngs = [u['lng'] for u in route['assigned_users']]
+    return (np.mean(lats), np.mean(lngs))
+
+
+def update_route_metrics_improved(route, office_lat, office_lon):
+    """Update route metrics with improved calculations"""
+    if route['assigned_users']:
+        driver_pos = (route['latitude'], route['longitude'])
+        office_pos = (office_lat, office_lon)
+        
+        route['centroid'] = calculate_users_center_improved(route['assigned_users'])
+        route['utilization'] = len(route['assigned_users']) / route['vehicle_type']
+        route['turning_score'] = calculate_route_turning_score_improved(route['assigned_users'], driver_pos, office_pos)
+        route['tortuosity_ratio'] = calculate_tortuosity_ratio_improved(route['assigned_users'], driver_pos, office_pos)
+        route['direction_consistency'] = calculate_direction_consistency_improved(route['assigned_users'], driver_pos, office_pos)
+    else:
+        route['centroid'] = [route['latitude'], route['longitude']]
+        route['utilization'] = 0
+        route['turning_score'] = 0
+        route['tortuosity_ratio'] = 1.0
+        route['direction_consistency'] = 1.0
+
+
+def calculate_tortuosity_ratio_improved(users, driver_pos, office_pos):
+    """Calculate improved tortuosity ratio"""
+    if not users:
+        return 1.0
 
     # Actual route distance
     actual_distance = calculate_sequence_distance(
@@ -1392,370 +1600,177 @@ def calculate_tortuosity_ratio(users, driver_pos, office_pos):
 
     return actual_distance / straight_distance if straight_distance > 0 else 1.0
 
-def calculate_direction_consistency(users, driver_pos, office_pos):
-    """Calculate fraction of route segments going in consistent direction"""
-    if len(users) <= 1:
-        return 1.0
-
-    # Calculate main route bearing (driver to office)
-    main_bearing = calculate_bearing(driver_pos[0], driver_pos[1], office_pos[0], office_pos[1])
-
-    consistent_segments = 0
-    total_segments = 0
-
-    # Check each segment
-    for i in range(len(users)):
-        if i == 0:
-            prev_pos = driver_pos
-        else:
-            prev_pos = (users[i-1]['lat'], users[i-1]['lng'])
-
-        current_pos = (users[i]['lat'], users[i]['lng'])
-
-        segment_bearing = calculate_bearing(prev_pos[0], prev_pos[1], current_pos[0], current_pos[1])
-        bearing_diff = abs(normalize_bearing_difference(segment_bearing - main_bearing))
-
-        if bearing_diff <= 45:  # Within 45 degrees of main direction
-            consistent_segments += 1
-        total_segments += 1
-
-    return consistent_segments / total_segments if total_segments > 0 else 1.0
-
-def normalize_bearing_difference(diff):
-    """Normalize bearing difference to [-180, 180] range"""
-    while diff > 180:
-        diff -= 360
-    while diff < -180:
-        diff += 360
-    return diff
-
-
-def try_user_swap(routes, office_lat, office_lon, config):
-    """Try swapping users between routes with direction-aware evaluation and nearby driver preference"""
-    improvements = 0
-    threshold = config.get('SWAP_IMPROVEMENT_THRESHOLD', 0.3)  # Stricter threshold
-    max_turning_penalty = config.get('zigzag_penalty_weight', 2.5)
-
-    for i in range(len(routes)):
-        for j in range(i + 1, len(routes)):
-            route1, route2 = routes[i], routes[j]
-
-            if not route1['assigned_users'] or not route2['assigned_users']:
-                continue
-
-            # Calculate distance between route centers (prefer nearby swaps)
-            center1 = calculate_route_center(route1)
-            center2 = calculate_route_center(route2)
-            route_distance = haversine_distance(center1[0], center1[1], center2[0], center2[1])
-            
-            # Skip distant route swaps to prefer reassignment to nearby drivers
-            max_swap_distance = config.get('MERGE_DISTANCE_KM', 1.5) * 1.5  # Allow slightly more than merge distance
-            if route_distance > max_swap_distance:
-                continue
-
-            # Try swapping each user from route1 to route2
-            for user1 in route1['assigned_users'][:]:
-                if (len(route2['assigned_users']) + 1 <= route2['vehicle_type']
-                        and len(route1['assigned_users']) > 1):
-
-                    # Calculate current costs and quality metrics
-                    cost1_before, quality1_before = calculate_route_cost_with_quality(route1, office_lat, office_lon)
-                    cost2_before, quality2_before = calculate_route_cost_with_quality(route2, office_lat, office_lon)
-                    total_before = cost1_before + cost2_before
-                    quality_before = quality1_before['turning_score'] + quality2_before['turning_score']
-
-                    # Perform swap
-                    route1['assigned_users'].remove(user1)
-                    route2['assigned_users'].append(user1)
-
-                    # Recalculate with optimized sequences
-                    route1_optimized = optimize_route_sequence(route1, office_lat, office_lon)
-                    route2_optimized = optimize_route_sequence(route2, office_lat, office_lon)
-
-                    cost1_after, quality1_after = calculate_route_cost_with_quality(route1_optimized, office_lat, office_lon)
-                    cost2_after, quality2_after = calculate_route_cost_with_quality(route2_optimized, office_lat, office_lon)
-                    total_after = cost1_after + cost2_after
-                    quality_after = quality1_after['turning_score'] + quality2_after['turning_score']
-
-                    # Combined improvement check (distance + direction quality)
-                    distance_improvement = total_before - total_after
-                    quality_improvement = quality_before - quality_after
-
-                    # Add proximity bonus (prefer swaps between nearby routes)
-                    proximity_bonus = max(0, (max_swap_distance - route_distance) / max_swap_distance) * 0.5
-                    
-                    total_improvement = distance_improvement + (quality_improvement * max_turning_penalty) + proximity_bonus
-
-                    if total_improvement > threshold:
-                        improvements += 1
-                        # Keep the optimized sequences
-                        routes[i] = route1_optimized
-                        routes[j] = route2_optimized
-                    else:
-                        # Revert swap
-                        route2['assigned_users'].remove(user1)
-                        route1['assigned_users'].append(user1)
-
-    return improvements
-
 
 # STEP 5: GLOBAL OPTIMIZATION
 def global_optimization(routes, user_df, assigned_user_ids, driver_df, office_lat, office_lon):
     """
-    Enhanced Step 5: Global optimization with quality-aware merging and proactive splitting
+    Enhanced Step 5: Global optimization with improved single-route fixing and route quality management
     """
     print("🌍 Step 5: Enhanced Global optimization...")
 
-    # PHASE 1: Proactive route splitting for poor quality routes
-    print("  🔄 Phase 1: Proactive route quality improvement...")
-    routes = proactive_route_splitting(routes, driver_df, office_lat, office_lon)
-    
-    # PHASE 2: Fill underutilized routes with quality checks
-    print("  📈 Phase 2: Quality-aware route filling...")
+    # PHASE 1: Fix single-user routes first (highest priority)
+    print("  🎯 Phase 1: Fixing single-user routes...")
+    routes = fix_single_user_routes_improved(routes, user_df, assigned_user_ids, driver_df, office_lat, office_lon)
+
+    # PHASE 2: Fill underutilized routes with strict quality checks
+    print("  📈 Phase 2: Quality-controlled route filling...")
     unassigned_users_df = user_df[~user_df['user_id'].isin(assigned_user_ids)].copy()
-    routes = quality_aware_route_filling(routes, unassigned_users_df, assigned_user_ids, office_lat, office_lon)
+    routes = quality_controlled_route_filling(routes, unassigned_users_df, assigned_user_ids, office_lat, office_lon)
 
-    # PHASE 3: Conservative quality-first merging
-    print("  🔗 Phase 3: Quality-first route merging...")
-    routes = conservative_quality_merging(routes, driver_df, office_lat, office_lon)
+    # PHASE 3: Merge underutilized routes with strict quality preservation
+    print("  🔗 Phase 3: Quality-preserving route merging...")
+    routes = quality_preserving_route_merging(routes, driver_df, office_lat, office_lon)
 
-    # PHASE 4: Final cleanup and optimization
-    print("  🧹 Phase 4: Final optimization pass...")
-    routes = final_optimization_cleanup(routes, office_lat, office_lon)
+    # PHASE 4: Split poor quality routes with improved logic
+    print("  ✂️ Phase 4: Enhanced route splitting...")
+    routes = enhanced_route_splitting(routes, driver_df, office_lat, office_lon)
+
+    # PHASE 5: Outlier detection and reassignment
+    print("  🔍 Phase 5: Outlier detection and reassignment...")
+    routes = outlier_detection_and_reassignment(routes, office_lat, office_lon)
 
     # Handle remaining unassigned users
     remaining_unassigned_users_df = user_df[~user_df['user_id'].isin(assigned_user_ids)]
-    unassigned_list = handle_remaining_users(remaining_unassigned_users_df)
+    unassigned_list = handle_remaining_users_improved(remaining_unassigned_users_df, driver_df, routes, office_lat, office_lon)
 
     print("  ✅ Enhanced global optimization completed")
     return routes, unassigned_list
 
 
-def merge_compatible_routes(routes, office_lat, office_lon, config):
-    """Merge compatible underutilized routes with multiple passes"""
-    current_routes = routes.copy()
-    merged_count = 0
-    max_passes = 3  # Multiple passes to catch indirect merges
-
-    for pass_num in range(max_passes):
-        merged_routes_this_pass = []
-        used_route_indices = set()
-        pass_merges = 0
-
-        # Sort routes by utilization (lowest first for aggressive merging)
-        sorted_routes = sorted(enumerate(current_routes),
-                               key=lambda x: x[1].get('utilization', 1))
-
-        for orig_i, route_a in sorted_routes:
-            if orig_i in used_route_indices:
-                continue
-
-            # Look for the best merge candidate
-            best_merge_candidate = None
-            best_merge_score = float('inf')
-            best_candidate_index = None
-
-            for orig_j, route_b in sorted_routes:
-                if orig_j in used_route_indices or orig_j == orig_i:
-                    continue
-
-                # Check if routes can be merged
-                if can_merge_routes(route_a, route_b, office_lat, office_lon, config):
-                    # Calculate merge score (lower is better)
-                    center_a = calculate_route_center(route_a)
-                    center_b = calculate_route_center(route_b)
-                    distance = haversine_distance(center_a[0], center_a[1],
-                                                  center_b[0], center_b[1])
-
-                    # Prefer merging with closer, less utilized routes
-                    util_penalty = (route_b.get('utilization', 0) * 2
-                                    )  # Prefer lower utilization
-                    merge_score = distance + util_penalty
-
-                    if merge_score < best_merge_score:
-                        best_merge_score = merge_score
-                        best_merge_candidate = route_b
-                        best_candidate_index = orig_j
-
-            if best_merge_candidate is not None:
-                # Merge with best candidate
-                target_route = best_merge_candidate if best_merge_candidate[
-                    'vehicle_type'] >= route_a['vehicle_type'] else route_a
-                source_route = route_a if target_route == best_merge_candidate else best_merge_candidate
-
-                # Create new merged route
-                merged_route = target_route.copy()
-                merged_route['assigned_users'] = target_route[
-                    'assigned_users'] + source_route['assigned_users']
-                update_route_metrics(merged_route, office_lat, office_lon)
-
-                merged_routes_this_pass.append(merged_route)
-                used_route_indices.add(orig_i)
-                used_route_indices.add(best_candidate_index)
-                pass_merges += 1
-                merged_count += 1
-
-                # print(
-                #     f"    🔗 Pass {pass_num + 1}: Merged routes with utilizations {route_a.get('utilization', 0):.1%} + {best_merge_candidate.get('utilization', 0):.1%} → {merged_route.get('utilization', 0):.1%}"
-                # )
-            else:
-                # No merge candidate found, keep original route
-                merged_routes_this_pass.append(route_a)
-                used_route_indices.add(orig_i)
-
-        current_routes = merged_routes_this_pass
-        # print(f"    📊 Pass {pass_num + 1}: {pass_merges} merges completed")
-
-        # If no merges happened this pass, we're done
-        if pass_merges == 0:
+def fix_single_user_routes_improved(routes, user_df, assigned_user_ids, driver_df, office_lat, office_lon):
+    """Aggressively fix single-user routes with improved quality control"""
+    print("    🎯 Intelligently fixing single-user routes...")
+    
+    single_user_routes = []
+    multi_user_routes = []
+    
+    # Separate routes by user count
+    for route in routes:
+        if len(route['assigned_users']) == 1:
+            single_user_routes.append(route)
+        else:
+            multi_user_routes.append(route)
+    
+    print(f"    📊 Found {len(single_user_routes)} single-user routes to optimize")
+    
+    # Strategy 1: Merge single users into compatible multi-user routes
+    routes_to_keep = []
+    reassigned_count = 0
+    
+    for route in multi_user_routes:
+        if len(route['assigned_users']) >= route['vehicle_type']:
+            routes_to_keep.append(route)
+            continue
+            
+        route_center = calculate_route_center_improved(route)
+        route_bearing = calculate_average_bearing_improved(route, office_lat, office_lon)
+        
+        # Find compatible single-user routes to merge
+        for single_route in single_user_routes[:]:
+            if len(route['assigned_users']) >= route['vehicle_type']:
+                break
+                
+            single_user = single_route['assigned_users'][0]
+            user_pos = (single_user['lat'], single_user['lng'])
+            
+            # Check compatibility with stricter thresholds
+            distance = haversine_distance(route_center[0], route_center[1], user_pos[0], user_pos[1])
+            max_distance = _config.get('MAX_FILL_DISTANCE_KM', 5.0) * 1.2  # Slightly more lenient
+            
+            if distance <= max_distance:
+                user_bearing = calculate_bearing(office_lat, office_lon, user_pos[0], user_pos[1])
+                bearing_diff = bearing_difference(user_bearing, route_bearing)
+                max_bearing_diff = _config.get('MAX_BEARING_DIFFERENCE', 20) * 1.3  # Slightly more lenient
+                
+                if bearing_diff <= max_bearing_diff:
+                    # Test merge quality with strict thresholds
+                    test_route = route.copy()
+                    test_route['assigned_users'] = route['assigned_users'] + [single_user]
+                    test_route = optimize_route_sequence_improved(test_route, office_lat, office_lon)
+                    
+                    turning_score = calculate_route_turning_score_improved(
+                        test_route['assigned_users'], 
+                        (test_route['latitude'], test_route['longitude']), 
+                        (office_lat, office_lon)
+                    )
+                    
+                    # Stricter quality thresholds for single-user merges
+                    if turning_score <= 40:  # Stricter than before
+                        route['assigned_users'].append(single_user)
+                        single_user_routes.remove(single_route)
+                        reassigned_count += 1
+                        print(f"    ✅ Merged single user {single_user['user_id']} into route {route['driver_id']}")
+        
+        # Re-optimize the route after merging
+        route = optimize_route_sequence_improved(route, office_lat, office_lon)
+        update_route_metrics_improved(route, office_lat, office_lon)
+        routes_to_keep.append(route)
+    
+    # Strategy 2: Merge compatible single-user routes
+    remaining_singles = single_user_routes[:]
+    merged_singles = []
+    
+    while len(remaining_singles) >= 2:
+        route1 = remaining_singles.pop(0)
+        best_merge = None
+        best_score = float('inf')
+        
+        for i, route2 in enumerate(remaining_singles):
+            # Check if they can be merged
+            combined_capacity = max(route1['vehicle_type'], route2['vehicle_type'])
+            if combined_capacity >= 2:
+                user1_pos = (route1['assigned_users'][0]['lat'], route1['assigned_users'][0]['lng'])
+                user2_pos = (route2['assigned_users'][0]['lat'], route2['assigned_users'][0]['lng'])
+                distance = haversine_distance(user1_pos[0], user1_pos[1], user2_pos[0], user2_pos[1])
+                
+                # Check bearing compatibility
+                user1_bearing = calculate_bearing(office_lat, office_lon, user1_pos[0], user1_pos[1])
+                user2_bearing = calculate_bearing(office_lat, office_lon, user2_pos[0], user2_pos[1])
+                bearing_diff = bearing_difference(user1_bearing, user2_bearing)
+                
+                # Combined score considering distance and bearing
+                score = distance + (bearing_diff * 0.1)  # Convert degrees to distance-like metric
+                
+                if (distance <= _config.get('MERGE_DISTANCE_KM', 3.0) * 1.5 and 
+                    bearing_diff <= 30 and score < best_score):
+                    best_score = score
+                    best_merge = (i, route2)
+        
+        if best_merge is not None:
+            i, route2 = best_merge
+            remaining_singles.pop(i)
+            
+            # Create merged route using better positioned driver
+            center1 = (route1['assigned_users'][0]['lat'], route1['assigned_users'][0]['lng'])
+            center2 = (route2['assigned_users'][0]['lat'], route2['assigned_users'][0]['lng'])
+            combined_center = ((center1[0] + center2[0])/2, (center1[1] + center2[1])/2)
+            
+            dist1 = haversine_distance(route1['latitude'], route1['longitude'], combined_center[0], combined_center[1])
+            dist2 = haversine_distance(route2['latitude'], route2['longitude'], combined_center[0], combined_center[1])
+            
+            better_route = route1 if dist1 <= dist2 else route2
+            merged_route = better_route.copy()
+            merged_route['assigned_users'] = route1['assigned_users'] + route2['assigned_users']
+            merged_route['vehicle_type'] = max(route1['vehicle_type'], route2['vehicle_type'])
+            
+            merged_route = optimize_route_sequence_improved(merged_route, office_lat, office_lon)
+            update_route_metrics_improved(merged_route, office_lat, office_lon)
+            merged_singles.append(merged_route)
+            reassigned_count += 1
+            print(f"    ✅ Merged two single-user routes into optimized route")
+        else:
             break
-
-    if merged_count > 0:
-        print(
-            f"  ✅ Total merges: {merged_count}, Final routes: {len(current_routes)}"
-        )
-
-    return current_routes
-
-
-def can_merge_routes(route1, route2, office_lat, office_lon, config):
-    """Check if two routes can be merged with strict direction-aware constraints"""
-    total_users = len(route1['assigned_users']) + len(route2['assigned_users'])
-    max_capacity = max(route1['vehicle_type'], route2['vehicle_type'])
-
-    if total_users > max_capacity:
-        return False
-
-    # Stricter distance constraint
-    center1 = calculate_route_center(route1)
-    center2 = calculate_route_center(route2)
-    distance = haversine_distance(center1[0], center1[1], center2[0], center2[1])
-
-    merge_distance = config.get('MERGE_DISTANCE_KM', 1.5)  # Further reduced
-    if distance > merge_distance:
-        return False
-
-    # Stricter bearing constraint
-    bearing1 = calculate_average_bearing(route1, office_lat, office_lon)
-    bearing2 = calculate_average_bearing(route2, office_lat, office_lon)
-    bearing_diff = abs(bearing1 - bearing2)
-    bearing_diff = min(bearing_diff, 360 - bearing_diff)
-
-    max_bearing_diff = config.get('max_bearing_difference', 12)  # Further reduced
-    if bearing_diff > max_bearing_diff:
-        return False
-
-    # Check current tortuosity and require improvement if merging high-tortuosity routes
-    tortuosity1 = route1.get('tortuosity_ratio', 1.0)
-    tortuosity2 = route2.get('tortuosity_ratio', 1.0)
-    max_current_tortuosity = max(tortuosity1, tortuosity2)
     
-    # Simulate merged route to check quality
-    merged_quality = simulate_merge_quality(route1, route2, office_lat, office_lon, config)
-    if not merged_quality['acceptable']:
-        return False
+    # Add remaining unmerged single routes
+    final_routes = routes_to_keep + merged_singles + remaining_singles
     
-    # If either route has high tortuosity, require merged route to improve it
-    require_tortuosity_improvement = config.get('merge_tortuosity_improvement_required', True)
-    if require_tortuosity_improvement and max_current_tortuosity > 1.3:
-        if merged_quality['tortuosity'] >= max_current_tortuosity * 0.95:  # Must improve by at least 5%
-            return False
-
-    return True
-
-def simulate_merge_quality(route1, route2, office_lat, office_lon, config):
-    """Simulate merging routes and check if result is acceptable with conservative merge criteria"""
-    # Create temporary merged route
-    merged_users = route1['assigned_users'] + route2['assigned_users']
-
-    # Choose better positioned driver
-    driver1_pos = (route1['latitude'], route1['longitude'])
-    driver2_pos = (route2['latitude'], route2['longitude'])
-    office_pos = (office_lat, office_lon)
-
-    # Calculate which driver position would be better for merged route
-    users_center = calculate_users_center(merged_users)
-
-    dist1 = haversine_distance(driver1_pos[0], driver1_pos[1], users_center[0], users_center[1])
-    dist2 = haversine_distance(driver2_pos[0], driver2_pos[1], users_center[0], users_center[1])
-
-    better_driver_pos = driver1_pos if dist1 <= dist2 else driver2_pos
-
-    # Normalize user objects to consistent format
-    normalized_users = [normalize_user_format(u) for u in merged_users]
-
-    sequence = calculate_optimal_sequence(better_driver_pos, 
-                                        [{'latitude': u['lat'], 'longitude': u['lng'], 'user_id': u['user_id']} 
-                                         for u in normalized_users], office_pos)
-
-    # Calculate quality metrics with normalized format
-    normalized_sequence = [normalize_user_format(u) for u in sequence]
+    print(f"    ✅ Optimized {reassigned_count} single-user assignments")
+    print(f"    📊 Reduced single-user routes from {len(single_user_routes)} to {len([r for r in final_routes if len(r['assigned_users']) == 1])}")
     
-    turning_score = calculate_route_turning_score(normalized_sequence, better_driver_pos, office_pos)
-    tortuosity = calculate_tortuosity_ratio(normalized_sequence, better_driver_pos, office_pos)
-
-    # Calculate original route metrics for comparison
-    orig1_turning = route1.get('turning_score', 0)
-    orig2_turning = route2.get('turning_score', 0)
-    max_orig_turning = max(orig1_turning, orig2_turning)
-
-    # Conservative merge criteria - must improve or maintain quality
-    max_turning_score = config.get('max_allowed_turning_score', 40)  # Stricter default
-    max_tortuosity = config.get('max_tortuosity_ratio', 1.6)  # Stricter default
-    
-    # Require merged route to not degrade turning score significantly
-    turning_degradation_allowed = 5.0  # degrees
-    
-    quality_acceptable = (
-        turning_score <= max_turning_score and 
-        tortuosity <= max_tortuosity and
-        turning_score <= (max_orig_turning + turning_degradation_allowed)
-    )
-
-    return {
-        'acceptable': quality_acceptable,
-        'turning_score': turning_score,
-        'tortuosity': tortuosity,
-        'user_count': len(merged_users),
-        'max_original_turning': max_orig_turning
-    }
+    return final_routes
 
 
-def normalize_user_format(user):
-    """Normalize user object to consistent {'lat', 'lng', 'user_id'} format"""
-    if 'lat' in user and 'lng' in user:
-        return user
-    elif 'latitude' in user and 'longitude' in user:
-        return {
-            'lat': user['latitude'],
-            'lng': user['longitude'],
-            'user_id': user.get('user_id', ''),
-            **{k: v for k, v in user.items() if k not in ['latitude', 'longitude']}
-        }
-    else:
-        raise ValueError(f"User object missing coordinate keys: {user.keys()}")
-
-def calculate_users_center(users):
-    """Calculate center point of a list of users"""
-    if not users:
-        return (0, 0)
-
-    avg_lat = sum(u['lat'] for u in users) / len(users)
-    avg_lng = sum(u['lng'] for u in users) / len(users)
-    return (avg_lat, avg_lng)
-
-
-def calculate_route_center(route):
-    """Calculate the geometric center of users in a route"""
-    if not route['assigned_users']:
-        return (route['latitude'], route['longitude'])
-    
-    lats = [u['lat'] for u in route['assigned_users']]
-    lngs = [u['lng'] for u in route['assigned_users']]
-    return (np.mean(lats), np.mean(lngs))
-
-
-def calculate_average_bearing(route, office_lat, office_lon):
+def calculate_average_bearing_improved(route, office_lat, office_lon):
     """Calculate the average bearing of users in a route towards the office"""
     if not route['assigned_users']:
         return calculate_bearing(route['latitude'], route['longitude'], office_lat, office_lon)
@@ -1766,241 +1781,77 @@ def calculate_average_bearing(route, office_lat, office_lon):
     return calculate_bearing(avg_lat, avg_lng, office_lat, office_lon)
 
 
-def proactive_route_splitting(routes, driver_df, office_lat, office_lon):
-    """Proactively split routes with poor quality metrics"""
-    improved_routes = []
-    available_drivers = driver_df[~driver_df['driver_id'].isin([r['driver_id'] for r in routes])].copy()
-    
-    turning_threshold = _config.get('route_split_turning_threshold', 30)
-    tortuosity_threshold = _config.get('max_tortuosity_ratio', 1.4)
-    consistency_threshold = _config.get('route_split_consistency_threshold', 0.7)
-    
-    for route in routes:
-        if len(route['assigned_users']) < 3:  # Can't meaningfully split small routes
-            improved_routes.append(route)
-            continue
-            
-        # Calculate current quality metrics
-        driver_pos = (route['latitude'], route['longitude'])
-        turning_score = route.get('turning_score', 0)
-        tortuosity = route.get('tortuosity_ratio', 1.0)
-        consistency = route.get('direction_consistency', 1.0)
+def quality_controlled_route_filling(routes, unassigned_users_df, assigned_user_ids, office_lat, office_lon):
+    """Fill routes with unassigned users using mode-specific quality control"""
+    if unassigned_users_df.empty:
+        return routes
         
-        # Check if route needs splitting
-        needs_split = (
-            turning_score > turning_threshold or 
-            tortuosity > tortuosity_threshold or 
-            consistency < consistency_threshold
-        )
-        
-        if needs_split and len(available_drivers) > 0:
-            print(f"    🔄 Splitting poor quality route - turning: {turning_score:.1f}°, tortuosity: {tortuosity:.2f}")
-            split_routes = intelligent_route_splitting(route, available_drivers, office_lat, office_lon)
-            improved_routes.extend(split_routes)
-            
-            # Remove used drivers from available pool
-            used_driver_ids = [sr['driver_id'] for sr in split_routes if sr['driver_id'] != route['driver_id']]
-            available_drivers = available_drivers[~available_drivers['driver_id'].isin(used_driver_ids)]
-        else:
-            improved_routes.append(route)
+    optimization_mode = _config.get('optimization_mode', 'balanced')
+    print(f"    📋 {optimization_mode.upper()} mode: assignment of {len(unassigned_users_df)} unassigned users")
     
-    return improved_routes
-
-
-def intelligent_route_splitting(route, available_drivers, office_lat, office_lon):
-    """Split a route intelligently based on geographical and directional patterns"""
-    users = route['assigned_users']
-    if len(users) < 3:
-        return [route]
+    # Sort routes by utilization (prioritize underutilized routes)
+    routes_by_util = sorted(routes, key=lambda r: len(r['assigned_users']) / r['vehicle_type'])
     
-    # Calculate bearing spread to determine split strategy
-    bearings = []
-    for user in users:
-        bearing = calculate_bearing(office_lat, office_lon, user['lat'], user['lng'])
-        bearings.append(bearing)
+    assignments_made = 0
     
-    bearing_spread = calculate_bearing_spread_from_list(bearings)
-    
-    # Strategy 1: If large bearing spread, split by direction
-    if bearing_spread > 45:
-        return split_by_bearing_clusters(route, available_drivers, office_lat, office_lon)
-    
-    # Strategy 2: If high tortuosity, split by geographical distance
-    tortuosity = route.get('tortuosity_ratio', 1.0)
-    if tortuosity > 1.5:
-        return split_by_geographical_distance(route, available_drivers, office_lat, office_lon)
-    
-    # Strategy 3: Default - split into balanced groups
-    return split_balanced_groups(route, available_drivers, office_lat, office_lon)
-
-
-def split_by_bearing_clusters(route, available_drivers, office_lat, office_lon):
-    """Split route by clustering users with similar bearings"""
-    users = route['assigned_users']
-    
-    # Calculate bearings and cluster
-    user_bearings = []
-    for user in users:
-        bearing = calculate_bearing(office_lat, office_lon, user['lat'], user['lng'])
-        user_bearings.append((user, bearing))
-    
-    # Sort by bearing and find natural break point
-    user_bearings.sort(key=lambda x: x[1])
-    
-    # Find the largest gap in bearings to split
-    max_gap = 0
-    split_index = len(user_bearings) // 2  # Default to middle
-    
-    for i in range(len(user_bearings) - 1):
-        gap = abs(user_bearings[i+1][1] - user_bearings[i][1])
-        if gap > 180:  # Handle circular nature
-            gap = 360 - gap
-        if gap > max_gap:
-            max_gap = gap
-            split_index = i + 1
-    
-    group1 = [ub[0] for ub in user_bearings[:split_index]]
-    group2 = [ub[0] for ub in user_bearings[split_index:]]
-    
-    return create_split_routes(route, [group1, group2], available_drivers, office_lat, office_lon)
-
-
-def split_by_geographical_distance(route, available_drivers, office_lat, office_lon):
-    """Split route by geographical clustering to reduce tortuosity"""
-    users = route['assigned_users']
-    
-    # Use k-means clustering on coordinates
-    coords = np.array([[u['lat'], u['lng']] for u in users])
-    
-    from sklearn.cluster import KMeans
-    kmeans = KMeans(n_clusters=2, random_state=42, n_init=10)
-    labels = kmeans.fit_predict(coords)
-    
-    group1 = [users[i] for i in range(len(users)) if labels[i] == 0]
-    group2 = [users[i] for i in range(len(users)) if labels[i] == 1]
-    
-    return create_split_routes(route, [group1, group2], available_drivers, office_lat, office_lon)
-
-
-def split_balanced_groups(route, available_drivers, office_lat, office_lon):
-    """Split into balanced groups maintaining sequence order"""
-    users = route['assigned_users']
-    mid_point = len(users) // 2
-    
-    group1 = users[:mid_point]
-    group2 = users[mid_point:]
-    
-    return create_split_routes(route, [group1, group2], available_drivers, office_lat, office_lon)
-
-
-def create_split_routes(original_route, user_groups, available_drivers, office_lat, office_lon):
-    """Create new routes from split user groups"""
-    split_routes = []
-    
-    for i, group in enumerate(user_groups):
-        if not group:
-            continue
-            
-        if i == 0:
-            # Keep original driver for first group
-            new_route = original_route.copy()
-            new_route['assigned_users'] = group
-            split_routes.append(new_route)
-        else:
-            # Find new driver for additional groups
-            suitable_driver = find_suitable_driver_for_group(group, available_drivers, office_lat, office_lon)
-            if suitable_driver is not None:
-                new_route = {
-                    'driver_id': str(suitable_driver['driver_id']),
-                    'vehicle_id': str(suitable_driver.get('vehicle_id', '')),
-                    'vehicle_type': int(suitable_driver['capacity']),
-                    'latitude': float(suitable_driver['latitude']),
-                    'longitude': float(suitable_driver['longitude']),
-                    'assigned_users': group
-                }
-                split_routes.append(new_route)
-            else:
-                # If no driver available, merge back with first group
-                if split_routes:
-                    split_routes[0]['assigned_users'].extend(group)
-    
-    # Optimize sequences and update metrics for all split routes
-    for route in split_routes:
-        route = optimize_route_sequence(route, office_lat, office_lon)
-        update_route_metrics(route, office_lat, office_lon)
-    
-    return split_routes if len(split_routes) > 1 else [original_route]
-
-
-def find_suitable_driver_for_group(user_group, available_drivers, office_lat, office_lon):
-    """Find the most suitable driver for a group of users"""
-    if available_drivers.empty or len(user_group) == 0:
-        return None
-    
-    group_center = calculate_users_center(user_group)
-    best_driver = None
-    best_score = float('inf')
-    
-    for _, driver in available_drivers.iterrows():
-        if driver['capacity'] < len(user_group):
-            continue
-            
-        # Calculate distance to group center
-        distance = haversine_distance(driver['latitude'], driver['longitude'], 
-                                    group_center[0], group_center[1])
-        
-        # Calculate utilization bonus
-        utilization = len(user_group) / driver['capacity']
-        utilization_bonus = utilization * 2.0
-        
-        score = distance - utilization_bonus
-        
-        if score < best_score:
-            best_score = score
-            best_driver = driver
-    
-    return best_driver
-
-
-def quality_aware_route_filling(routes, unassigned_users_df, assigned_user_ids, office_lat, office_lon):
-    """Fill routes with quality degradation checks"""
-    for route in routes:
+    for route in routes_by_util:
         if len(route['assigned_users']) >= route['vehicle_type'] or unassigned_users_df.empty:
             continue
             
-        original_quality = {
-            'turning_score': route.get('turning_score', 0),
-            'tortuosity': route.get('tortuosity_ratio', 1.0),
-            'consistency': route.get('direction_consistency', 1.0)
-        }
-        
         route_center = route.get('centroid', [route['latitude'], route['longitude']])
+        route_bearing = calculate_average_bearing_improved(route, office_lat, office_lon)
         
-        # Find compatible users within distance
+        # Mode-specific compatible user finding
         compatible_users = []
         for _, user in unassigned_users_df.iterrows():
+            if user['user_id'] in assigned_user_ids:
+                continue
+                
             distance = haversine_distance(route_center[0], route_center[1],
                                         user['latitude'], user['longitude'])
             
-            if distance <= MAX_FILL_DISTANCE_KM:
-                # Check bearing compatibility
-                if route['assigned_users']:
-                    route_bearing = calculate_average_bearing(route, office_lat, office_lon)
-                else:
-                    route_bearing = calculate_bearing(route['latitude'], route['longitude'], office_lat, office_lon)
+            # Mode-specific distance constraints
+            utilization = len(route['assigned_users']) / route['vehicle_type']
+            
+            if optimization_mode == "capacity_optimized":
+                # More lenient distance for capacity optimization
+                max_distance = _config['MAX_FILL_DISTANCE_KM'] * (2.0 if utilization < 0.5 else 1.5)
+            elif optimization_mode == "route_efficiency":
+                # Stricter distance for route efficiency
+                max_distance = _config['MAX_FILL_DISTANCE_KM'] * (1.0 if utilization > 0.7 else 0.8)
+            else:  # balanced
+                max_distance = _config['MAX_FILL_DISTANCE_KM'] * (1.5 if utilization < 0.4 else 1.2 if utilization < 0.7 else 1.0)
+            
+            if distance <= max_distance:
+                user_bearing = user.get('bearing_from_office', 
+                                      calculate_bearing(office_lat, office_lon, user['latitude'], user['longitude']))
+                bearing_diff = bearing_difference(user_bearing, route_bearing)
                 
-                user_bearing = user['bearing_from_office']
-                bearing_diff = abs(normalize_bearing_difference(user_bearing - route_bearing))
+                # Mode-specific bearing constraints
+                max_bearing = _config['MAX_BEARING_DIFFERENCE']
+                if optimization_mode == "capacity_optimized":
+                    max_bearing *= 1.8  # Very lenient for capacity mode
+                elif optimization_mode == "route_efficiency":
+                    max_bearing *= 0.8  # Strict for efficiency mode
+                # balanced uses default
                 
-                if bearing_diff <= MAX_BEARING_DIFFERENCE:
-                    compatible_users.append((user, distance))
+                if bearing_diff <= max_bearing:
+                    compatible_users.append((user, distance, bearing_diff))
         
-        # Sort by distance and try adding users one by one with quality checks
-        compatible_users.sort(key=lambda x: x[1])
+        if not compatible_users:
+            continue
+            
+        # Sort by quality score
+        compatible_users.sort(key=lambda x: x[1] + (x[2] * 0.05))
+        
         slots_available = route['vehicle_type'] - len(route['assigned_users'])
+        users_added_this_route = 0
         
-        for user, _ in compatible_users[:slots_available]:
-            # Test adding this user
+        for user, distance, bearing_diff in compatible_users:
+            if users_added_this_route >= slots_available or user['user_id'] in assigned_user_ids:
+                break
+                
+            # Create test user data
             test_user_data = {
                 'user_id': str(user['user_id']),
                 'lat': float(user['latitude']),
@@ -2008,88 +1859,94 @@ def quality_aware_route_filling(routes, unassigned_users_df, assigned_user_ids, 
                 'office_distance': float(user.get('office_distance', 0))
             }
             
-            # Temporarily add user and check quality
+            if pd.notna(user.get('first_name')):
+                test_user_data['first_name'] = str(user['first_name'])
+            if pd.notna(user.get('email')):
+                test_user_data['email'] = str(user['email'])
+            
+            # Test route quality with new user
             test_route = route.copy()
             test_route['assigned_users'] = route['assigned_users'] + [test_user_data]
-            test_route = optimize_route_sequence(test_route, office_lat, office_lon)
+            test_route = optimize_route_sequence_improved(test_route, office_lat, office_lon)
             
-            new_turning = test_route.get('turning_score', 0)
-            new_tortuosity = test_route.get('tortuosity_ratio', 1.0)
+            new_turning = calculate_route_turning_score_improved(
+                test_route['assigned_users'], 
+                (test_route['latitude'], test_route['longitude']), 
+                (office_lat, office_lon)
+            )
+            new_tortuosity = calculate_tortuosity_ratio_improved(
+                test_route['assigned_users'], 
+                (test_route['latitude'], test_route['longitude']), 
+                (office_lat, office_lon)
+            )
             
-            # Only add if quality doesn't degrade significantly
-            turning_degradation = new_turning - original_quality['turning_score']
-            tortuosity_degradation = new_tortuosity - original_quality['tortuosity']
+            # Mode-specific quality thresholds
+            if optimization_mode == "capacity_optimized":
+                max_turning = 60  # Very lenient
+                max_tortuosity = 1.8
+            elif optimization_mode == "route_efficiency":
+                max_turning = 25  # Very strict
+                max_tortuosity = 1.2
+            else:  # balanced
+                current_util = len(route['assigned_users']) / route['vehicle_type']
+                max_turning = 35 if current_util > 0.5 else 45
+                max_tortuosity = 1.4 if current_util > 0.5 else 1.6
             
-            max_turning_degradation = _config.get('max_allowed_turning_score', 40) * 0.2  # 20% of max
-            max_tortuosity_degradation = 0.2  # Absolute degradation limit
-            
-            if (turning_degradation <= max_turning_degradation and 
-                tortuosity_degradation <= max_tortuosity_degradation):
-                
-                # Add user permanently
-                if pd.notna(user.get('first_name')):
-                    test_user_data['first_name'] = str(user['first_name'])
-                if pd.notna(user.get('email')):
-                    test_user_data['email'] = str(user['email'])
-                
+            if new_turning <= max_turning and new_tortuosity <= max_tortuosity:
                 route['assigned_users'].append(test_user_data)
                 assigned_user_ids.add(user['user_id'])
-                unassigned_users_df = unassigned_users_df[unassigned_users_df['user_id'] != user['user_id']]
+                users_added_this_route += 1
+                assignments_made += 1
                 
-                # Update route with new metrics
-                route = optimize_route_sequence(route, office_lat, office_lon)
-                update_route_metrics(route, office_lat, office_lon)
+                print(f"    ✅ {optimization_mode.upper()}-assigned user {user['user_id']} to route {route['driver_id']} (turn: {new_turning:.1f}°)")
                 
-                # Update original quality for next iteration
-                original_quality = {
-                    'turning_score': route.get('turning_score', 0),
-                    'tortuosity': route.get('tortuosity_ratio', 1.0),
-                    'consistency': route.get('direction_consistency', 1.0)
-                }
+                route = optimize_route_sequence_improved(route, office_lat, office_lon)
+                update_route_metrics_improved(route, office_lat, office_lon)
     
+    print(f"    📊 {optimization_mode.upper()} mode: assigned {assignments_made} users")
     return routes
 
 
-def conservative_quality_merging(routes, driver_df, office_lat, office_lon):
-    """Conservative merging with strict quality preservation"""
+def quality_preserving_route_merging(routes, driver_df, office_lat, office_lon):
+    """Merge routes while strictly preserving quality metrics"""
     current_routes = routes.copy()
     merged_count = 0
-    max_passes = 2  # Reduced passes for more conservative approach
+    max_passes = 2  # Reduced for conservative approach
     
     for pass_num in range(max_passes):
         merged_routes_this_pass = []
         used_route_indices = set()
         pass_merges = 0
         
-        # Only consider low utilization routes for merging
-        low_util_routes = [(i, r) for i, r in enumerate(current_routes) 
-                          if r.get('utilization', 1) < 0.7 and len(r['assigned_users']) > 0]
+        # Only consider underutilized routes
+        underutilized_routes = [(i, r) for i, r in enumerate(current_routes) 
+                               if r.get('utilization', 1) < 0.6 and len(r['assigned_users']) > 0]
         
-        for orig_i, route_a in low_util_routes:
+        for orig_i, route_a in underutilized_routes:
             if orig_i in used_route_indices:
                 continue
                 
             best_merge_candidate = None
             best_candidate_index = None
-            best_quality_improvement = -float('inf')
+            best_quality_score = float('inf')
             
-            for orig_j, route_b in low_util_routes:
+            for orig_j, route_b in underutilized_routes:
                 if orig_j in used_route_indices or orig_j == orig_i:
                     continue
                 
                 # Strict compatibility check
-                if strict_merge_compatibility(route_a, route_b, office_lat, office_lon):
-                    # Calculate quality improvement
-                    quality_improvement = calculate_merge_quality_improvement(route_a, route_b, office_lat, office_lon)
+                if strict_merge_compatibility_improved(route_a, route_b, office_lat, office_lon):
+                    # Calculate merge quality score
+                    quality_score = calculate_merge_quality_score(route_a, route_b, office_lat, office_lon)
                     
-                    if quality_improvement > best_quality_improvement and quality_improvement > 0:
-                        best_quality_improvement = quality_improvement
+                    if quality_score < best_quality_score:
+                        best_quality_score = quality_score
                         best_merge_candidate = route_b
                         best_candidate_index = orig_j
             
             if best_merge_candidate is not None:
-                # Perform merge
-                merged_route = perform_quality_merge(route_a, best_merge_candidate, office_lat, office_lon)
+                # Perform merge with quality optimization
+                merged_route = perform_quality_merge_improved(route_a, best_merge_candidate, office_lat, office_lon)
                 merged_routes_this_pass.append(merged_route)
                 used_route_indices.add(orig_i)
                 used_route_indices.add(best_candidate_index)
@@ -2110,74 +1967,76 @@ def conservative_quality_merging(routes, driver_df, office_lat, office_lon):
             break
     
     if merged_count > 0:
-        print(f"    🔗 Conservative merges: {merged_count}, Final routes: {len(current_routes)}")
+        print(f"    🔗 Quality-preserving merges: {merged_count}, Final routes: {len(current_routes)}")
     
     return current_routes
 
 
-def strict_merge_compatibility(route1, route2, office_lat, office_lon):
-    """Very strict compatibility check for merging"""
+def strict_merge_compatibility_improved(route1, route2, office_lat, office_lon):
+    """Very strict compatibility check for merging with quality preservation"""
     total_users = len(route1['assigned_users']) + len(route2['assigned_users'])
     max_capacity = max(route1['vehicle_type'], route2['vehicle_type'])
     
     if total_users > max_capacity:
         return False
     
-    # Stricter distance constraint
-    center1 = calculate_route_center(route1)
-    center2 = calculate_route_center(route2)
+    # Strict distance constraint
+    center1 = calculate_route_center_improved(route1)
+    center2 = calculate_route_center_improved(route2)
     distance = haversine_distance(center1[0], center1[1], center2[0], center2[1])
     
-    if distance > _config.get('MERGE_DISTANCE_KM', 1.5) * 0.8:  # 20% stricter
+    if distance > _config.get('MERGE_DISTANCE_KM', 1.5) * 0.8:
         return False
     
-    # Stricter bearing constraint
-    bearing1 = calculate_average_bearing(route1, office_lat, office_lon)
-    bearing2 = calculate_average_bearing(route2, office_lat, office_lon)
-    bearing_diff = abs(normalize_bearing_difference(bearing1 - bearing2))
+    # Strict bearing constraint
+    bearing1 = calculate_average_bearing_improved(route1, office_lat, office_lon)
+    bearing2 = calculate_average_bearing_improved(route2, office_lat, office_lon)
+    bearing_diff = bearing_difference(bearing1, bearing2)
     
-    if bearing_diff > _config.get('max_bearing_difference', 12) * 0.7:  # 30% stricter
+    if bearing_diff > _config.get('MAX_BEARING_DIFFERENCE', 20) * 0.7:
         return False
     
-    # Both routes must be underutilized
+    # Both routes must be significantly underutilized
     util1 = route1.get('utilization', 1)
     util2 = route2.get('utilization', 1)
-    if util1 > 0.8 or util2 > 0.8:
+    if util1 > 0.7 or util2 > 0.7:
         return False
     
     return True
 
 
-def calculate_merge_quality_improvement(route1, route2, office_lat, office_lon):
-    """Calculate expected quality improvement from merging"""
-    # Current combined metrics
-    current_turning = route1.get('turning_score', 0) + route2.get('turning_score', 0)
-    current_tortuosity = (route1.get('tortuosity_ratio', 1) + route2.get('tortuosity_ratio', 1)) / 2
-    
+def calculate_merge_quality_score(route1, route2, office_lat, office_lon):
+    """Calculate quality score for potential merge (lower is better)"""
     # Simulate merge
-    merged_simulation = simulate_merge_quality(route1, route2, office_lat, office_lon, _config)
-    
-    if not merged_simulation['acceptable']:
-        return -float('inf')
-    
-    # Calculate improvement
-    turning_improvement = current_turning - merged_simulation['turning_score']
-    tortuosity_improvement = current_tortuosity - merged_simulation['tortuosity']
-    
-    # Weight improvements
-    total_improvement = turning_improvement * 0.6 + tortuosity_improvement * 0.4
-    
-    return total_improvement
-
-
-def perform_quality_merge(route1, route2, office_lat, office_lon):
-    """Perform merge with quality optimization"""
-    # Choose better positioned driver
-    center1 = calculate_route_center(route1)
-    center2 = calculate_route_center(route2)
-    
     all_users = route1['assigned_users'] + route2['assigned_users']
-    combined_center = calculate_users_center(all_users)
+    
+    # Choose better positioned driver
+    center1 = calculate_route_center_improved(route1)
+    center2 = calculate_route_center_improved(route2)
+    combined_center = calculate_users_center_improved(all_users)
+    
+    dist1 = haversine_distance(route1['latitude'], route1['longitude'], 
+                              combined_center[0], combined_center[1])
+    dist2 = haversine_distance(route2['latitude'], route2['longitude'], 
+                              combined_center[0], combined_center[1])
+    
+    better_driver_pos = (route1['latitude'], route1['longitude']) if dist1 <= dist2 else (route2['latitude'], route2['longitude'])
+    
+    # Calculate quality metrics
+    turning_score = calculate_route_turning_score_improved(all_users, better_driver_pos, (office_lat, office_lon))
+    tortuosity = calculate_tortuosity_ratio_improved(all_users, better_driver_pos, (office_lat, office_lon))
+    
+    # Combined quality score (lower is better)
+    quality_score = turning_score + (tortuosity - 1.0) * 20  # Normalize tortuosity penalty
+    
+    return quality_score
+
+
+def perform_quality_merge_improved(route1, route2, office_lat, office_lon):
+    """Perform merge with improved quality optimization"""
+    # Choose better positioned driver
+    all_users = route1['assigned_users'] + route2['assigned_users']
+    combined_center = calculate_users_center_improved(all_users)
     
     dist1 = haversine_distance(route1['latitude'], route1['longitude'], 
                               combined_center[0], combined_center[1])
@@ -2191,43 +2050,421 @@ def perform_quality_merge(route1, route2, office_lat, office_lon):
     merged_route['vehicle_type'] = max(route1['vehicle_type'], route2['vehicle_type'])
     
     # Optimize and update metrics
-    merged_route = optimize_route_sequence(merged_route, office_lat, office_lon)
-    update_route_metrics(merged_route, office_lat, office_lon)
+    merged_route = optimize_route_sequence_improved(merged_route, office_lat, office_lon)
+    update_route_metrics_improved(merged_route, office_lat, office_lon)
     
     return merged_route
 
 
-def final_optimization_cleanup(routes, office_lat, office_lon):
-    """Final cleanup and optimization pass"""
+def enhanced_route_splitting(routes, driver_df, office_lat, office_lon):
+    """Enhanced route splitting with intelligent clustering and driver allocation"""
+    improved_routes = []
+    available_drivers = driver_df[~driver_df['driver_id'].isin([r['driver_id'] for r in routes])].copy()
+
+    # Stricter thresholds for splitting
+    turning_threshold = _config.get('route_split_turning_threshold', 30)  # Reduced
+    tortuosity_threshold = _config.get('max_tortuosity_ratio', 1.3)  # Reduced
+    consistency_threshold = _config.get('route_split_consistency_threshold', 0.8)  # Increased
+
+    routes_split = 0
+
     for route in routes:
-        if len(route['assigned_users']) > 1:
-            # Re-optimize sequence one final time
-            route = optimize_route_sequence(route, office_lat, office_lon)
-            update_route_metrics(route, office_lat, office_lon)
-    
-    return routes
+        if len(route['assigned_users']) < 3:  # Can't split small routes
+            improved_routes.append(route)
+            continue
+
+        # Calculate current quality metrics
+        driver_pos = (route['latitude'], route['longitude'])
+        turning_score = route.get('turning_score', 0)
+        tortuosity = route.get('tortuosity_ratio', 1.0)
+        consistency = route.get('direction_consistency', 1.0)
+
+        # Enhanced splitting criteria
+        needs_split = (
+            turning_score > turning_threshold or 
+            tortuosity > tortuosity_threshold or 
+            consistency < consistency_threshold or
+            (len(route['assigned_users']) >= 5 and turning_score > 25)  # Split large routes with moderate issues
+        )
+
+        if needs_split and len(available_drivers) > 0:
+            print(f"    🔄 Enhanced splitting - users: {len(route['assigned_users'])}, turning: {turning_score:.1f}°, tortuosity: {tortuosity:.2f}")
+            split_routes = intelligent_route_splitting_improved(route, available_drivers, office_lat, office_lon)
+
+            if len(split_routes) > 1:  # Successfully split
+                improved_routes.extend(split_routes)
+                routes_split += 1
+
+                # Remove used drivers from available pool
+                used_driver_ids = [sr['driver_id'] for sr in split_routes if sr['driver_id'] != route['driver_id']]
+                available_drivers = available_drivers[~available_drivers['driver_id'].isin(used_driver_ids)]
+            else:
+                improved_routes.append(route)  # Couldn't split, keep original
+        else:
+            improved_routes.append(route)
+
+    if routes_split > 0:
+        print(f"    ✂️ Successfully split {routes_split} routes with enhanced logic")
+
+    return improved_routes
 
 
-def calculate_bearing_spread_from_list(bearings):
-    """Calculate the spread of bearings in a list"""
-    if len(bearings) <= 1:
-        return 0
+def intelligent_route_splitting_improved(route, available_drivers, office_lat, office_lon):
+    """Intelligent route splitting using metric-based clustering"""
+    users = route['assigned_users']
+    if len(users) < 3:
+        return [route]
     
-    bearings = sorted(bearings)
-    max_gap = 0
+    # Convert users to metric coordinates for clustering
+    coords_km = []
+    bearings = []
+    for user in users:
+        lat_km, lon_km = coords_to_km(user['lat'], user['lng'], office_lat, office_lon)
+        coords_km.append([lat_km, lon_km])
+        bearing = calculate_bearing(office_lat, office_lon, user['lat'], user['lng'])
+        bearings.append(bearing)
     
-    for i in range(len(bearings)):
-        gap = bearings[(i + 1) % len(bearings)] - bearings[i]
-        if gap < 0:
-            gap += 360
-        max_gap = max(max_gap, gap)
+    # Calculate bearing spread to determine split strategy
+    bearing_spread = max(bearings) - min(bearings)
+    if bearing_spread > 180:  # Handle circular nature
+        bearing_spread = 360 - bearing_spread
     
-    return 360 - max_gap if max_gap > 180 else max_gap
+    # Strategy selection based on route characteristics
+    if bearing_spread > 60:
+        # Large bearing spread: split by direction
+        return split_by_bearing_clusters_improved(route, available_drivers, office_lat, office_lon, coords_km, bearings)
+    else:
+        # Small bearing spread: split by distance clusters
+        return split_by_distance_clusters_improved(route, available_drivers, office_lat, office_lon, coords_km)
 
 
-def handle_remaining_users(unassigned_users_df):
-    """Handle users that couldn't be assigned to any route"""
+def split_by_bearing_clusters_improved(route, available_drivers, office_lat, office_lon, coords_km, bearings):
+    """Split by bearing using metric coordinates"""
+    users = route['assigned_users']
+    
+    # Combine coordinates with bearing features for clustering
+    coords_with_bearing = np.column_stack([
+        coords_km,
+        [math.sin(math.radians(b)) * 2 for b in bearings],  # Weight bearing more heavily
+        [math.cos(math.radians(b)) * 2 for b in bearings]
+    ])
+    
+    kmeans = KMeans(n_clusters=2, random_state=42, n_init=10)
+    labels = kmeans.fit_predict(coords_with_bearing)
+    
+    group1 = [users[i] for i in range(len(users)) if labels[i] == 0]
+    group2 = [users[i] for i in range(len(users)) if labels[i] == 1]
+    
+    return create_split_routes_improved(route, [group1, group2], available_drivers, office_lat, office_lon)
+
+
+def split_by_distance_clusters_improved(route, available_drivers, office_lat, office_lon, coords_km):
+    """Split by distance using metric coordinates"""
+    users = route['assigned_users']
+    
+    # Use K-means on metric coordinates
+    kmeans = KMeans(n_clusters=2, random_state=42, n_init=10)
+    labels = kmeans.fit_predict(coords_km)
+    
+    group1 = [users[i] for i in range(len(users)) if labels[i] == 0]
+    group2 = [users[i] for i in range(len(users)) if labels[i] == 1]
+    
+    return create_split_routes_improved(route, [group1, group2], available_drivers, office_lat, office_lon)
+
+
+def create_split_routes_improved(original_route, user_groups, available_drivers, office_lat, office_lon):
+    """Create new routes from split user groups with improved driver matching"""
+    split_routes = []
+    
+    for i, group in enumerate(user_groups):
+        if not group:
+            continue
+            
+        if i == 0:
+            # Keep original driver for first group
+            new_route = original_route.copy()
+            new_route['assigned_users'] = group
+            split_routes.append(new_route)
+        else:
+            # Find best driver for additional groups
+            suitable_driver = find_best_driver_for_group(group, available_drivers, office_lat, office_lon)
+            if suitable_driver is not None:
+                new_route = {
+                    'driver_id': str(suitable_driver['driver_id']),
+                    'vehicle_id': str(suitable_driver.get('vehicle_id', '')),
+                    'vehicle_type': int(suitable_driver['capacity']),
+                    'latitude': float(suitable_driver['latitude']),
+                    'longitude': float(suitable_driver['longitude']),
+                    'assigned_users': group
+                }
+                split_routes.append(new_route)
+            else:
+                # If no driver available, merge back with first group
+                if split_routes:
+                    split_routes[0]['assigned_users'].extend(group)
+    
+    # Optimize sequences and update metrics for all split routes
+    for route in split_routes:
+        route = optimize_route_sequence_improved(route, office_lat, office_lon)
+        update_route_metrics_improved(route, office_lat, office_lon)
+    
+    return split_routes if len(split_routes) > 1 else [original_route]
+
+
+def find_best_driver_for_group(user_group, available_drivers, office_lat, office_lon):
+    """Find the best driver for a group using improved scoring"""
+    if available_drivers.empty or len(user_group) == 0:
+        return None
+    
+    group_center = calculate_users_center_improved(user_group)
+    group_bearing = calculate_bearing(office_lat, office_lon, group_center[0], group_center[1])
+    
+    best_driver = None
+    best_score = float('inf')
+    
+    for _, driver in available_drivers.iterrows():
+        if driver['capacity'] < len(user_group):
+            continue
+            
+        # Calculate comprehensive score
+        distance = haversine_distance(driver['latitude'], driver['longitude'], 
+                                    group_center[0], group_center[1])
+        
+        # Driver bearing alignment with group
+        driver_bearing = calculate_bearing(office_lat, office_lon, 
+                                         driver['latitude'], driver['longitude'])
+        bearing_diff = bearing_difference(driver_bearing, group_bearing)
+        
+        # Utilization bonus
+        utilization = len(user_group) / driver['capacity']
+        utilization_bonus = utilization * 2.0
+        
+        # Combined score
+        score = distance + (bearing_diff * 0.05) - utilization_bonus  # 0.05 km per degree
+        
+        if score < best_score:
+            best_score = score
+            best_driver = driver
+    
+    return best_driver
+
+
+def outlier_detection_and_reassignment(routes, office_lat, office_lon):
+    """Detect and reassign outlier users that degrade route quality"""
+    print("    🔍 Detecting and reassigning outlier users...")
+    
+    improved_routes = []
+    outliers_detected = 0
+    
+    for route in routes:
+        if len(route['assigned_users']) <= 2:  # Skip small routes
+            improved_routes.append(route)
+            continue
+        
+        # Calculate baseline route quality without each user
+        original_turning = calculate_route_turning_score_improved(
+            route['assigned_users'], 
+            (route['latitude'], route['longitude']), 
+            (office_lat, office_lon)
+        )
+        
+        outlier_candidates = []
+        
+        for i, user in enumerate(route['assigned_users']):
+            # Test route without this user
+            test_users = route['assigned_users'][:i] + route['assigned_users'][i+1:]
+            if not test_users:  # Don't remove last user
+                continue
+                
+            test_turning = calculate_route_turning_score_improved(
+                test_users, 
+                (route['latitude'], route['longitude']), 
+                (office_lat, office_lon)
+            )
+            
+            # Check if removing this user significantly improves quality
+            turning_improvement = original_turning - test_turning
+            if turning_improvement > 10:  # 10 degrees improvement threshold
+                outlier_candidates.append((user, turning_improvement, i))
+        
+        # Remove the most problematic outlier if found
+        if outlier_candidates:
+            outlier_candidates.sort(key=lambda x: x[1], reverse=True)
+            outlier_user, improvement, index = outlier_candidates[0]
+            
+            # Remove outlier from route
+            route['assigned_users'].pop(index)
+            outliers_detected += 1
+            
+            # Try to reassign outlier to a compatible route
+            reassigned = try_reassign_outlier(outlier_user, improved_routes, office_lat, office_lon)
+            if not reassigned:
+                print(f"    ⚠️ Could not reassign outlier user {outlier_user['user_id']}")
+            else:
+                print(f"    ✅ Reassigned outlier user {outlier_user['user_id']} (improvement: {improvement:.1f}°)")
+        
+        # Re-optimize route after outlier removal
+        route = optimize_route_sequence_improved(route, office_lat, office_lon)
+        update_route_metrics_improved(route, office_lat, office_lon)
+        improved_routes.append(route)
+    
+    print(f"    📊 Detected and processed {outliers_detected} outlier users")
+    return improved_routes
+
+
+def try_reassign_outlier(outlier_user, routes, office_lat, office_lon):
+    """Try to reassign an outlier user to a compatible route"""
+    outlier_pos = (outlier_user['lat'], outlier_user['lng'])
+    outlier_bearing = calculate_bearing(office_lat, office_lon, outlier_pos[0], outlier_pos[1])
+    
+    best_route = None
+    best_score = float('inf')
+    
+    for route in routes:
+        # Check capacity
+        if len(route['assigned_users']) >= route['vehicle_type']:
+            continue
+        
+        # Check compatibility
+        route_center = calculate_route_center_improved(route)
+        route_bearing = calculate_average_bearing_improved(route, office_lat, office_lon)
+        
+        distance = haversine_distance(route_center[0], route_center[1], outlier_pos[0], outlier_pos[1])
+        bearing_diff = bearing_difference(outlier_bearing, route_bearing)
+        
+        if distance <= _config['MAX_FILL_DISTANCE_KM'] * 1.5 and bearing_diff <= 30:
+            # Test quality impact
+            test_route = route.copy()
+            test_route['assigned_users'] = route['assigned_users'] + [outlier_user]
+            test_route = optimize_route_sequence_improved(test_route, office_lat, office_lon)
+            
+            test_turning = calculate_route_turning_score_improved(
+                test_route['assigned_users'], 
+                (test_route['latitude'], test_route['longitude']), 
+                (office_lat, office_lon)
+            )
+            
+            # Score based on distance, bearing, and quality impact
+            score = distance + (bearing_diff * 0.05) + (test_turning * 0.1)
+            
+            if test_turning <= 40 and score < best_score:  # Quality threshold
+                best_score = score
+                best_route = route
+    
+    if best_route is not None:
+        # Add outlier to best compatible route
+        best_route['assigned_users'].append(outlier_user)
+        # Re-optimize the route
+        best_route = optimize_route_sequence_improved(best_route, office_lat, office_lon)
+        update_route_metrics_improved(best_route, office_lat, office_lon)
+        return True
+    
+    return False
+
+
+def handle_remaining_users_improved(unassigned_users_df, driver_df, routes, office_lat, office_lon):
+    """Handle remaining unassigned users with improved route creation"""
+    if unassigned_users_df.empty:
+        return []
+    
     unassigned_list = []
+    new_routes_created = []
+    
+    if (driver_df is not None and routes is not None):
+        # Find available drivers
+        assigned_driver_ids = {route['driver_id'] for route in routes}
+        available_drivers = driver_df[~driver_df['driver_id'].isin(assigned_driver_ids)]
+        
+        if not available_drivers.empty:
+            print(f"    🚀 Creating optimized routes for {len(unassigned_users_df)} unassigned users")
+            
+            # Group nearby unassigned users using metric clustering
+            remaining_users = unassigned_users_df.copy()
+            
+            # Convert to metric coordinates for clustering
+            coords_km = []
+            user_list = []
+            for _, user in remaining_users.iterrows():
+                lat_km, lon_km = coords_to_km(user['latitude'], user['longitude'], office_lat, office_lon)
+                coords_km.append([lat_km, lon_km])
+                user_list.append(user)
+            
+            if len(coords_km) > 1:
+                # Use DBSCAN for intelligent grouping
+                eps_km = _config.get('DBSCAN_EPS_KM', 1.5)
+                dbscan = DBSCAN(eps=eps_km, min_samples=1)
+                cluster_labels = dbscan.fit_predict(coords_km)
+                
+                # Group users by cluster
+                clusters = {}
+                for i, label in enumerate(cluster_labels):
+                    if label not in clusters:
+                        clusters[label] = []
+                    clusters[label].append(user_list[i])
+                
+                # Create routes for each cluster
+                for cluster_users in clusters.values():
+                    if not cluster_users:
+                        continue
+                    
+                    # Find best driver for this cluster
+                    cluster_center = (
+                        np.mean([u['latitude'] for u in cluster_users]),
+                        np.mean([u['longitude'] for u in cluster_users])
+                    )
+                    
+                    best_driver = find_best_driver_for_cluster_improved(cluster_users, available_drivers, cluster_center, office_lat, office_lon)
+                    
+                    if best_driver is not None and len(cluster_users) <= best_driver['capacity']:
+                        # Create new route
+                        route_users = []
+                        user_ids_to_remove = []
+                        
+                        for user in cluster_users:
+                            user_data = {
+                                'user_id': str(user['user_id']),
+                                'lat': float(user['latitude']),
+                                'lng': float(user['longitude']),
+                                'office_distance': float(user.get('office_distance', 0))
+                            }
+                            
+                            if pd.notna(user.get('first_name')):
+                                user_data['first_name'] = str(user['first_name'])
+                            if pd.notna(user.get('email')):
+                                user_data['email'] = str(user['email'])
+                            
+                            route_users.append(user_data)
+                            user_ids_to_remove.append(user['user_id'])
+                        
+                        # Create the route
+                        new_route = {
+                            'driver_id': str(best_driver['driver_id']),
+                            'vehicle_id': str(best_driver.get('vehicle_id', '')),
+                            'vehicle_type': int(best_driver['capacity']),
+                            'latitude': float(best_driver['latitude']),
+                            'longitude': float(best_driver['longitude']),
+                            'assigned_users': route_users
+                        }
+                        
+                        # Optimize sequence and update metrics
+                        new_route = optimize_route_sequence_improved(new_route, office_lat, office_lon)
+                        update_route_metrics_improved(new_route, office_lat, office_lon)
+                        
+                        new_routes_created.append(new_route)
+                        
+                        # Remove assigned users and driver
+                        remaining_users = remaining_users[~remaining_users['user_id'].isin(user_ids_to_remove)]
+                        available_drivers = available_drivers[available_drivers['driver_id'] != best_driver['driver_id']]
+                        
+                        print(f"    ✅ Created optimized route for driver {best_driver['driver_id']} with {len(route_users)} users")
+            
+            # Update routes list
+            if new_routes_created:
+                routes.extend(new_routes_created)
+                unassigned_users_df = remaining_users
+                print(f"    🎯 Created {len(new_routes_created)} new routes")
+    
+    # Convert remaining unassigned users to list format
     for _, user in unassigned_users_df.iterrows():
         user_data = {
             'user_id': str(user['user_id']),
@@ -2242,21 +2479,74 @@ def handle_remaining_users(unassigned_users_df):
             user_data['email'] = str(user['email'])
 
         unassigned_list.append(user_data)
+    
     return unassigned_list
 
 
-# MAIN STRAIGHTFORWARD ASSIGNMENT FUNCTION
-def run_assignment(source_id: str, parameter: int = 1, string_param: str = ""):
+def find_best_driver_for_cluster_improved(cluster_users, available_drivers, cluster_center, office_lat, office_lon):
+    """Find the best driver for a cluster of users"""
+    if available_drivers.empty:
+        return None
+    
+    cluster_bearing = calculate_bearing(office_lat, office_lon, cluster_center[0], cluster_center[1])
+    best_driver = None
+    best_score = float('inf')
+    
+    for _, driver in available_drivers.iterrows():
+        if driver['capacity'] < len(cluster_users):
+            continue
+        
+        # Calculate comprehensive score
+        distance = haversine_distance(driver['latitude'], driver['longitude'], 
+                                    cluster_center[0], cluster_center[1])
+        
+        # Driver-cluster bearing alignment
+        driver_bearing = calculate_bearing(office_lat, office_lon, 
+                                         driver['latitude'], driver['longitude'])
+        bearing_diff = bearing_difference(driver_bearing, cluster_bearing)
+        
+        # Utilization bonus
+        utilization = len(cluster_users) / driver['capacity']
+        utilization_bonus = utilization * 2.0
+        
+        # Priority penalty
+        priority_penalty = driver.get('priority', 1) * 0.5
+        
+        # Combined score
+        score = distance + (bearing_diff * 0.05) + priority_penalty - utilization_bonus
+        
+        if score < best_score:
+            best_score = score
+            best_driver = driver
+    
+    return best_driver
+
+
+# MAIN ASSIGNMENT FUNCTION
+def run_assignment(source_id: str, parameter: int = 1, string_param: str = "", optimization_mode: str = None):
     """
-    Main assignment function with enhanced direction-aware clustering,
-    sequence-aware driver assignment, and optimization steps.
+    Main assignment function with mode-specific optimizations:
+    - capacity_optimized: Prioritizes filling vehicles to capacity
+    - route_efficiency: Prioritizes straight routes with minimal zigzag
+    - balanced: Balance between capacity and route efficiency
     """
     start_time = time.time()
 
+    # Reload configuration with the specified mode (or use config.json default)
+    global _config
+    _config = load_and_validate_config(optimization_mode)
+    
+    # Update global variables from new config
+    global MAX_FILL_DISTANCE_KM, MERGE_DISTANCE_KM, MAX_BEARING_DIFFERENCE, UTILIZATION_PENALTY_PER_SEAT
+    MAX_FILL_DISTANCE_KM = _config['MAX_FILL_DISTANCE_KM']
+    MERGE_DISTANCE_KM = _config['MERGE_DISTANCE_KM'] 
+    MAX_BEARING_DIFFERENCE = _config['MAX_BEARING_DIFFERENCE']
+    UTILIZATION_PENALTY_PER_SEAT = _config['UTILIZATION_PENALTY_PER_SEAT']
+
     try:
-        print(
-            f"🚀 Starting assignment for source_id: {source_id}"
-        )
+        # Get the actual optimization mode being used
+        actual_mode = _config.get('optimization_mode', 'balanced')
+        print(f"🚀 Starting {actual_mode.upper()} assignment for source_id: {source_id}")
         print(f"📋 Parameter: {parameter}, String parameter: {string_param}")
 
         # Load and validate data
@@ -2323,22 +2613,22 @@ def run_assignment(source_id: str, parameter: int = 1, string_param: str = ""):
             f"📊 DataFrames prepared - Users: {len(user_df)}, Drivers: {len(driver_df)}"
         )
 
-        # STEP 1: Geographic clustering
+        # STEP 1: Geographic clustering with proper distance metrics
         user_df = create_geographic_clusters(user_df, office_lat, office_lon, _config)
-        clustering_results = {"method": _config['clustering_method'], "clusters": user_df['geo_cluster'].nunique()}
-
+        clustering_results = {"method": "metric_aware_" + _config['clustering_method'], 
+                            "clusters": user_df['geo_cluster'].nunique()}
 
         # STEP 2: Capacity-based sub-clustering (direction-aware)
         user_df = create_capacity_subclusters(user_df, office_lat, office_lon, _config)
 
-        # STEP 3: Priority-based driver assignment (sequence-aware)
+        # STEP 3: Priority-based driver assignment (sequence-aware with bearing-based costs)
         routes, assigned_user_ids = assign_drivers_by_priority(
             user_df, driver_df, office_lat, office_lon)
 
-        # STEP 4: Local optimization (sequence and swap)
+        # STEP 4: Local optimization (improved turning calculations and swap logic)
         routes = local_optimization(routes, office_lat, office_lon)
 
-        # STEP 5: Global optimization (fill and merge)
+        # STEP 5: Global optimization (enhanced with outlier detection)
         routes, unassigned_users = global_optimization(routes, user_df,
                                                        assigned_user_ids, driver_df, office_lat, office_lon)
 
@@ -2359,7 +2649,7 @@ def run_assignment(source_id: str, parameter: int = 1, string_param: str = ""):
 
         # Final metrics update for all routes
         for route in routes:
-            update_route_metrics(route, office_lat, office_lon)
+            update_route_metrics_improved(route, office_lat, office_lon)
 
         execution_time = time.time() - start_time
 
@@ -2379,6 +2669,7 @@ def run_assignment(source_id: str, parameter: int = 1, string_param: str = ""):
             "unassignedUsers": unassigned_users,
             "unassignedDrivers": unassigned_drivers,
             "clustering_analysis": clustering_results,
+            "optimization_mode": actual_mode,
             "parameter": parameter,
             "string_param": string_param
         }
@@ -2508,7 +2799,11 @@ def analyze_assignment_quality(result):
         "distance_issues":
         distance_issues,
         "clustering_method":
-        result.get("clustering_analysis", {}).get("method", "Unknown")
+        result.get("clustering_analysis", {}).get("method", "Unknown"),
+        "routes_with_good_turning":
+        sum(1 for t in turning_scores if t <= 35),
+        "routes_with_poor_turning":
+        sum(1 for t in turning_scores if t > 50)
     }
 
     return analysis
