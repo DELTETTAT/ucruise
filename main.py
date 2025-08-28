@@ -4,7 +4,7 @@ from pydantic import BaseModel
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from assignment import run_assignment
+from assignment.master import run_assignment
 import os
 
 app = FastAPI()
@@ -32,8 +32,10 @@ def assign_drivers(source_id: str, parameter: int, string_param: str):
 
         if result["status"] == "true":
             print(f"✅ Assignment successful. Routes: {len(result['data'])}")
-            print(f"📋 Parameter value: {result.get('parameter', 'Not provided')}")
-            print(f"📋 String parameter value: {result.get('string_param', 'Not provided')}")
+            print(f"📋 Strategy: {result.get('assignment_strategy', 'unknown')}")
+            print(f"📋 Algorithm: {result.get('algorithm_used', 'unknown')}")
+            print(f"📋 Parameter value: {result.get('parameter', parameter)}")
+            print(f"📋 String parameter value: {result.get('string_param', string_param)}")
             with open("drivers_and_routes.json", "w") as f:
                 import json
                 json.dump(result["data"], f, indent=2)
