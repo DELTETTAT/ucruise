@@ -1,17 +1,16 @@
+
 import subprocess
 import threading
 import time
 import webbrowser
 import sys
-from assignment.master import run_assignment # Import from master module
+from assignment import run_assignment, analyze_assignment_quality
 
 SOURCE_ID = "UC_unify_dev"  # <-- Replace with your real source_id
 PARAMETER = 1  # Example numerical parameter
 STRING_PARAM = "Evening%20shift" # Example string parameter
 
 def start_fastapi():
-    # This command assumes uvicorn is installed and the FastAPI app is named 'app' in 'main.py'
-    # The --reload flag is useful for development but should be removed for production.
     subprocess.run(["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "3000", "--reload"])
 
 def launch_browser():
@@ -130,7 +129,8 @@ def display_detailed_analytics(result):
 
         # If driver is NOT in the unused drivers list, it means this driver WAS used
         # We need to determine source from the original data structure
-        # Based on the debug info showing Priority 1 and 2 drivers, these are driversUnassigned
+        # Since we have more driversUnassigned (45) than driversAssigned (0),
+        # and our priority system shows Priority 1 and 2 drivers, they're from driversUnassigned
 
         if not driver_found_in_unused:
             # This driver was used, so determine its original source
@@ -159,7 +159,7 @@ def display_detailed_analytics(result):
     # Get the assigned driver IDs
     assigned_driver_ids = [route["driver_id"] for route in routes]
 
-    # Since we know from the assignment result that:
+    # Since we know from the debug info that:
     # - Priority 1: 1 driver (driversUnassigned ST:1,3)
     # - Priority 2: 44 drivers (driversUnassigned ST:2)
     # - And we used 2 drivers total
@@ -332,7 +332,6 @@ if __name__ == "__main__":
 
     try:
         print("⏳ Running assignment algorithm...")
-        # This call assumes run_assignment is imported and functional
         result = run_assignment(SOURCE_ID, PARAMETER, STRING_PARAM)
 
         if result["status"] == "true":
@@ -347,22 +346,14 @@ if __name__ == "__main__":
             # Display detailed analytics
             display_detailed_analytics(result)
 
-            # Display algorithm information and calculate quality metrics
-            strategy = result.get('assignment_strategy', 'unknown')
-            algorithm = result.get('algorithm_used', 'unknown')
-            print(f"\n🎯 ALGORITHM INFO:")
-            print(f"   Strategy: {strategy.upper()}")
-            print(f"   Algorithm: {algorithm}")
-
-            # Calculate quality metrics
-            total_capacity = sum(route.get('vehicle_type', 0) for route in result["data"])
-            total_assigned = sum(len(route.get('assigned_users', [])) for route in result["data"])
-            assignment_rate = (total_assigned / max(total_capacity, 1)) * 100 if total_capacity > 0 else 0
-            routes_below_80 = sum(1 for route in result["data"] 
-                                if (len(route.get('assigned_users', [])) / max(route.get('vehicle_type', 1), 1)) < 0.8)
-
-            print(f"   Assignment Rate: {assignment_rate:.1f}%")
-            print(f"   Routes Below 80% Utilization: {routes_below_80}")
+            # Additional quality analysis
+            quality_analysis = analyze_assignment_quality(result)
+            if isinstance(quality_analysis, dict):
+                print(f"\n🎯 QUALITY METRICS:")
+                print(f"   Assignment Rate: {quality_analysis.get('assignment_rate', 0)}%")
+                print(f"   Routes Below 80% Utilization: {quality_analysis.get('routes_below_80_percent', 0)}")
+                if quality_analysis.get('distance_issues'):
+                    print(f"   Distance Issues: {len(quality_analysis['distance_issues'])}")
 
         else:
             print("❌ Assignment failed:")
