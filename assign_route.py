@@ -1,8 +1,11 @@
 import json
 import time
 import math
+import os
 import pandas as pd
 from road_network import RoadNetwork
+import networkx as nx
+import traceback
 
 # Global variables that will be set during assignment
 ROAD_NETWORK = None
@@ -11,6 +14,72 @@ OPTIMIZATION_CONFIGS = {
     "balanced": {"max_detour_ratio": 1.3},
     "capacity": {"max_detour_ratio": 1.5}
 }
+
+class SimpleRouteAssigner:
+    """Simple route assignment utility for fallback scenarios"""
+
+    def __init__(self, config):
+        self.config = config
+        self.road_network = None
+
+    def assign_routes(self, users, drivers, office_pos):
+        """Simple route assignment method"""
+        routes = []
+        assigned_user_ids = set()
+        used_driver_ids = set()
+
+        for driver in drivers:
+            if len(assigned_user_ids) >= len(users):
+                break
+
+            driver_route = {
+                'driver_id': str(driver['id']),
+                'vehicle_id': str(driver.get('vehicle_id', '')),
+                'vehicle_type': int(driver['capacity']),
+                'latitude': float(driver['latitude']),
+                'longitude': float(driver['longitude']),
+                'assigned_users': []
+            }
+
+            # Assign closest users to this driver
+            driver_pos = (driver['latitude'], driver['longitude'])
+            available_users = [u for u in users if str(u['id']) not in assigned_user_ids]
+
+            # Sort by distance to driver
+            available_users.sort(key=lambda u: haversine_distance(
+                driver_pos[0], driver_pos[1], 
+                float(u['latitude']), float(u['longitude'])
+            ))
+
+            users_assigned = 0
+            for user in available_users:
+                if users_assigned >= driver['capacity']:
+                    break
+
+                user_data = {
+                    'user_id': str(user['id']),
+                    'lat': float(user['latitude']),
+                    'lng': float(user['longitude']),
+                    'office_distance': haversine_distance(
+                        float(user['latitude']), float(user['longitude']),
+                        office_pos[0], office_pos[1]
+                    )
+                }
+                if user.get('first_name'):
+                    user_data['first_name'] = str(user['first_name'])
+                if user.get('email'):
+                    user_data['email'] = str(user['email'])
+
+                driver_route['assigned_users'].append(user_data)
+                assigned_user_ids.add(str(user['id']))
+                users_assigned += 1
+
+            if driver_route['assigned_users']:
+                routes.append(driver_route)
+                used_driver_ids.add(str(driver['id']))
+
+        return routes, assigned_user_ids, used_driver_ids
+
 
 class RoadCorridorAnalyzer:
     """Analyzes road network to identify natural travel corridors from office"""
@@ -47,8 +116,11 @@ class RoadCorridorAnalyzer:
         corridor_nodes = []
         visited = set()
         queue = [self.office_node]
+        max_iterations = 1000  # Prevent infinite loops
 
-        while queue and len(corridor_nodes) < 50:  # Limit search
+        iteration_count = 0
+        while queue and len(corridor_nodes) < 50 and iteration_count < max_iterations:
+            iteration_count += 1
             current_node = queue.pop(0)
             if current_node in visited:
                 continue
@@ -56,23 +128,32 @@ class RoadCorridorAnalyzer:
 
             # Check if this node is in the target direction
             if current_node != self.office_node:
-                current_pos = self.road_network.node_positions.get(current_node)
-                if current_pos:
-                    bearing = self.road_network._calculate_bearing(
-                        self.office_pos[0], self.office_pos[1],
-                        current_pos[0], current_pos[1]
-                    )
-                    bearing_diff = abs(self._normalize_bearing_difference(bearing - target_bearing))
+                try:
+                    current_pos = self.road_network.node_positions.get(current_node)
+                    if current_pos:
+                        bearing = self.road_network._calculate_bearing(
+                            self.office_pos[0], self.office_pos[1],
+                            current_pos[0], current_pos[1]
+                        )
+                        bearing_diff = abs(self._normalize_bearing_difference(bearing - target_bearing))
 
-                    if bearing_diff <= tolerance:
-                        corridor_nodes.append(current_node)
+                        if bearing_diff <= tolerance:
+                            corridor_nodes.append(current_node)
+                except Exception as e:
+                    continue  # Skip problematic nodes
 
-            # Add neighbors to queue
-            if hasattr(self.road_network.graph, 'neighbors'):
-                for neighbor in self.road_network.graph.neighbors(current_node):
-                    if neighbor not in visited:
-                        queue.append(neighbor)
+            # Add neighbors to queue with limit
+            try:
+                if hasattr(self.road_network.graph, 'neighbors'):
+                    neighbors = list(self.road_network.graph.neighbors(current_node))
+                    # Limit neighbors to prevent explosion
+                    for neighbor in neighbors[:10]:  # Max 10 neighbors per node
+                        if neighbor not in visited and len(queue) < 200:  # Limit queue size
+                            queue.append(neighbor)
+            except Exception as e:
+                continue  # Skip problematic neighbors
 
+        print(f"    Found {len(corridor_nodes)} nodes for bearing {target_bearing}° after {iteration_count} iterations")
         return corridor_nodes
 
     def _normalize_bearing_difference(self, diff):
@@ -136,13 +217,9 @@ class RoadCorridorAnalyzer:
                     'users': corridor['users']
                 })
 
+        # Fallback corridors would be handled by the calling function
         return corridor_routes
 
-
-class SimpleRouteAssigner:
-    def __init__(self, config):
-        self.config = config
-        self.road_network = None
 
     def assign_users_to_routes(self, users, drivers, office_pos, routes, assigned_user_ids, used_driver_ids, mode):
         """Assigns users to existing routes based on the specified mode."""
@@ -176,21 +253,33 @@ class SimpleRouteAssigner:
                 route_type = "straight" if mode == "efficiency" else "balanced" if mode == "balanced" else "capacity"
 
                 # Check if user is on route path with road network awareness
+                config = OPTIMIZATION_CONFIGS.get(mode, OPTIMIZATION_CONFIGS["balanced"])
+                max_detour = config.get('max_detour_ratio', 1.25)
+
                 if self.road_network and not self.road_network.is_user_on_route_path(
                     driver_pos, [(u['lat'], u['lng']) for u in route_users],
                     (float(user['latitude']), float(user['longitude'])),
-                    office_pos, max_detour_ratio=1.15, route_type="straight"
+                    office_pos, max_detour_ratio=max_detour, route_type=route_type
                 ):
-                    continue  # Skip users not aligned with the straight path
+                    continue  # Skip users not aligned with the path
 
-                # Hard coherence filter - test adding this user
+                # Combined coherence and path check - use softer filtering
                 if self.road_network:
                     test_users = [(u['lat'], u['lng']) for u in route_users] + [(float(user['latitude']), float(user['longitude']))]
                     coherence = self.road_network.get_route_coherence_score(
                         driver_pos, test_users, office_pos
                     )
-                    if coherence < 0.7:
-                        continue  # Reject users that break corridor coherence
+
+                    # Check if user is on route path
+                    on_path = self.road_network.is_user_on_route_path(
+                        driver_pos, [(u['lat'], u['lng']) for u in route_users],
+                        (float(user['latitude']), float(user['longitude'])),
+                        office_pos, max_detour_ratio=max_detour, route_type=route_type
+                    )
+
+                    # Allow if either condition passes (softer filtering)
+                    if not (on_path or coherence >= 0.55):
+                        continue  # Reject only if both conditions fail
 
                 # Sequential routing - no backtracking toward office
                 if route_users:
@@ -285,7 +374,7 @@ class SimpleRouteAssigner:
                 assigned_user_ids.add(str(user['id']))
 
 
-        # Try to assign remaining users to new routes if capacity allows
+        # Try to fill existing routes with users from other corridors
         # (This part needs to be integrated with the main assignment logic)
 
         return routes, assigned_user_ids
@@ -369,10 +458,43 @@ def assign_routes_road_aware(data):
     """Performs road-aware route assignment using real road network data."""
     users = data.get('users', [])
     drivers_data = data.get('drivers', {})
-    all_drivers = drivers_data.get('driversUnassigned', []) + drivers_data.get('driversAssigned', [])
+    drivers_unassigned = drivers_data.get('driversUnassigned', [])
+    drivers_assigned = drivers_data.get('driversAssigned', [])
+    all_drivers = drivers_unassigned + drivers_assigned
     office_lat = data['company']['latitude']
     office_lon = data['company']['longitude']
     office_pos = (office_lat, office_lon)
+    company = data.get('company', {}).get('name', 'Unknown')
+    total_drivers = len(all_drivers)
+
+    print("📊 DETAILED API DATA BREAKDOWN:")
+    print(f"   👥 Total Users from API: {len(users)}")
+    print(f"   🚗 driversUnassigned: {len(drivers_unassigned)}")
+    print(f"   🚙 driversAssigned: {len(drivers_assigned)}")
+    print(f"   🚛 Total Drivers Available: {total_drivers}")
+    print(f"   🏢 Office Location: ({office_lat}, {office_lon})")
+    print(f"   📍 Company: {company}")
+
+    # Detailed user breakdown
+    if users:
+        print(f"   📋 User ID Range: {users[0]['user_id']} to {users[-1]['user_id']}")
+        user_locations = [(u.get('lat', 0), u.get('lng', 0)) for u in users]
+        print(f"   📍 User Geographic Spread: {len(set(user_locations))} unique locations")
+    else:
+        print("   📋 Users: No users found in API response")
+
+    # Detailed driver breakdown  
+    if all_drivers:
+        print(f"   🔑 Driver ID Range: {all_drivers[0]['driver_id']} to {all_drivers[-1]['driver_id']}")
+        shift_types = {}
+        for driver in all_drivers:
+            st = driver.get('shift_type_id', 'Unknown')
+            shift_types[st] = shift_types.get(st, 0) + 1
+        print(f"   🕐 Shift Type Distribution: {dict(shift_types)}")
+    else:
+        print("   🔑 Drivers: No drivers found in API response")
+
+    print(f"   📊 Initial Processing Status: READY TO ASSIGN")
 
     routes = []
     assigned_user_ids = set()
@@ -383,10 +505,12 @@ def assign_routes_road_aware(data):
         print("🗺️ Loading road network from GraphML...")
         global ROAD_NETWORK
         ROAD_NETWORK = RoadNetwork('tricity_main_roads.graphml')
-        print(f"✅ Road network loaded successfully")
+        print(f"✅ Road network loaded successfully with {len(ROAD_NETWORK.graph.nodes)} nodes")
 
         # Phase 1: Analyze road corridors from office
         print("📍 Analyzing road corridors from office...")
+        print(f"   🎯 Office location: ({office_pos[0]:.6f}, {office_pos[1]:.6f})")
+        print(f"   🔍 Road network nodes available: {len(ROAD_NETWORK.node_positions)}")
         corridor_analyzer = RoadCorridorAnalyzer(ROAD_NETWORK, office_pos)
 
         # Phase 2: Assign users to corridors
@@ -396,13 +520,29 @@ def assign_routes_road_aware(data):
         # Phase 3: Get corridor-based routes
         corridor_routes = corridor_analyzer.get_corridor_routes()
         print(f"🛣️ Identified {len(corridor_routes)} corridors with users")
+        for corridor in corridor_routes:
+            print(f"   📍 {corridor['direction']}: {len(corridor['users'])} users")
 
     except Exception as e:
-        print(f"⚠️ Could not load road network: {e}")
-        print("📍 Falling back to simple geometric assignment...")
+        print(f"❌ ROAD NETWORK INITIALIZATION FAILED:")
+        print(f"   🔍 Error Type: {type(e).__name__}")
+        print(f"   📝 Error Message: {str(e)}")
+        print(f"   📂 GraphML File: {'EXISTS' if os.path.exists('tricity_main_roads.graphml') else 'MISSING'}")
+        print(f"   🔧 Detailed Error Analysis:")
+        print(f"      - Error occurred during: Network preparation")
+        print(f"      - NetworkX version: {nx.__version__}")
+        try:
+            import scipy
+            print(f"      - Scipy available: {scipy.__version__}")
+        except:
+            print(f"      - Scipy available: Not installed")
+        print(f"   📋 Full traceback: {traceback.format_exc()}")
+        print("📍 SWITCHING TO GEOMETRIC FALLBACK MODE...")
+        ROAD_NETWORK = None
+
         # Fallback to simple assignment without road network
         corridor_routes = _create_fallback_corridors(users, office_pos)
-        ROAD_NETWORK = None
+
 
     # Mode selection
     mode = "efficiency"
@@ -426,24 +566,30 @@ def assign_routes_road_aware(data):
 
         # Assign drivers to this corridor
         corridor_assigned = False
-        
+
         # For each corridor, try to assign drivers until all users are assigned or no drivers left
-        while corridor_users:
+        corridor_iterations = 0
+        max_corridor_iterations = 100  # Increased limit for better coverage
+
+        while corridor_users and corridor_iterations < max_corridor_iterations:
+            corridor_iterations += 1
+            print(f"    📍 Corridor {corridor_route['direction']} iteration {corridor_iterations}, {len(corridor_users)} users remaining")
+
             # Find next available driver
             available_driver = None
             for driver in sorted_drivers:
                 if driver is None:
                     continue
-                    
+
                 driver_id = str(driver['id'])
                 if driver_id not in used_driver_ids:
                     available_driver = driver
                     break
-            
+
             if available_driver is None:
                 print(f"    ⚠️ No more drivers available for corridor {corridor_route['direction']}")
                 break
-                
+
             driver = available_driver
             driver_id = str(driver['id'])
 
@@ -459,41 +605,57 @@ def assign_routes_road_aware(data):
                     'corridor_direction': corridor_route['direction']
                 }
 
-                # Assign users to this route (up to capacity)
-                users_for_this_route = corridor_users[:driver['capacity']]
-                remaining_corridor_users = corridor_users[driver['capacity']:]
+                # Try to fill this driver to capacity with users from this corridor
+                users_assigned_to_this_driver = 0
+                remaining_corridor_users = []
 
-                # Add users to route with road-aware validation
-                successfully_assigned_users = []
-                for user in users_for_this_route:
-                    if user is None:
+                user_processing_count = 0
+
+                for user in corridor_users:
+                    user_processing_count += 1
+
+                    if user is None or users_assigned_to_this_driver >= driver['capacity']:
+                        if user is not None:
+                            remaining_corridor_users.append(user)
                         continue
-                        
+
                     try:
+                        user_assigned = False
+
                         if ROAD_NETWORK and route_assigner and route_assigner.road_network:
-                            # Use road network validation
+                            # Use more lenient road network validation
                             driver_pos = (current_route['latitude'], current_route['longitude'])
                             user_pos = (user['lat'], user['lng'])
 
-                            # Check if user is reasonably accessible via road network
-                            if ROAD_NETWORK.is_user_on_route_path(
-                                driver_pos, 
-                                [(u['lat'], u['lng']) for u in current_route['assigned_users']],
-                                user_pos, 
-                                office_pos, 
-                                max_detour_ratio=1.3, 
-                                route_type="efficiency"
-                            ):
+                            # Simplified validation to prevent hanging
+                            try:
+                                # Quick distance check first
+                                distance = haversine_distance(driver_pos[0], driver_pos[1], user_pos[0], user_pos[1])
+                                if distance > 15.0:  # Skip very distant users
+                                    remaining_corridor_users.append(user)
+                                    continue
+
+                                # Simple road validation without complex path checking
                                 current_route['assigned_users'].append(user)
                                 assigned_user_ids.add(user['user_id'])
-                                successfully_assigned_users.append(user)
-                            else:
-                                remaining_corridor_users.append(user)  # Put back for next driver
+                                users_assigned_to_this_driver += 1
+                                user_assigned = True
+                            except Exception as road_error:
+                                # Fallback to simple assignment
+                                current_route['assigned_users'].append(user)
+                                assigned_user_ids.add(user['user_id'])
+                                users_assigned_to_this_driver += 1
+                                user_assigned = True
                         else:
                             # Simple assignment without road validation
                             current_route['assigned_users'].append(user)
                             assigned_user_ids.add(user['user_id'])
-                            successfully_assigned_users.append(user)
+                            users_assigned_to_this_driver += 1
+                            user_assigned = True
+
+                        if not user_assigned:
+                            remaining_corridor_users.append(user)
+
                     except Exception as user_assign_error:
                         print(f"    ⚠️ Error assigning user {user.get('user_id', 'unknown')}: {user_assign_error}")
                         remaining_corridor_users.append(user)
@@ -524,8 +686,6 @@ def assign_routes_road_aware(data):
                         # Update route metrics
                         update_route_metrics_improved(current_route, office_lat, office_lon)
                         routes.append(current_route)
-                        used_driver_ids.add(driver_id)
-                        corridor_assigned = True
 
                         print(f"    ✅ Created route for driver {driver_id} with {len(current_route['assigned_users'])} users")
                     except Exception as route_finalize_error:
@@ -534,16 +694,72 @@ def assign_routes_road_aware(data):
             except Exception as route_create_error:
                 print(f"    ⚠️ Error creating route for driver {driver_id}: {route_create_error}")
 
-            # Mark this driver as used so it won't be selected again
-            used_driver_ids.add(driver_id)
+            # Only mark driver as used if they have any users assigned
+            if current_route['assigned_users']:
+                used_driver_ids.add(driver_id)
+            else:
+                # Driver didn't get any users, keep them available for other corridors
+                pass
 
         if not corridor_assigned and corridor_users:
             print(f"    ⚠️ Could not assign {len(corridor_users)} users from corridor {corridor_route['direction']}")
 
-    # PHASE 2: Handle remaining unassigned users with available drivers
+    # PHASE 2: Cross-corridor filling - try to fill existing routes with users from other corridors
+    print("🔄 Phase 2: Cross-corridor route filling...")
+
     remaining_users = [u for u in users if str(u['id']) not in assigned_user_ids]
+
+    # Try to fill existing routes with users from any corridor
+    for route in routes:
+        if not remaining_users:
+            break
+
+        available_capacity = route['vehicle_type'] - len(route['assigned_users'])
+        if available_capacity <= 0:
+            continue
+
+        route_center = calculate_route_center(route)
+        users_added_to_route = 0
+        users_to_remove = []
+
+        for user in remaining_users:
+            if users_added_to_route >= available_capacity:
+                break
+
+            user_pos = (float(user['latitude']), float(user['longitude']))
+            distance_to_route = haversine_distance(route_center[0], route_center[1], user_pos[0], user_pos[1])
+
+            # More lenient distance constraint for cross-corridor filling
+            if distance_to_route <= 8.0:  # Allow up to 8km for capacity filling
+                user_data = {
+                    'user_id': str(user['id']),
+                    'lat': float(user['latitude']),
+                    'lng': float(user['longitude']),
+                    'office_distance': haversine_distance(user_pos[0], user_pos[1], office_pos[0], office_pos[1])
+                }
+                if user.get('first_name'):
+                    user_data['first_name'] = str(user['first_name'])
+                if user.get('email'):
+                    user_data['email'] = str(user['email'])
+
+                route['assigned_users'].append(user_data)
+                assigned_user_ids.add(str(user['id']))
+                users_added_to_route += 1
+                users_to_remove.append(user)
+
+                print(f"    ✅ Cross-corridor: Added user {user['id']} to route {route['driver_id']}")
+
+        # Remove assigned users from remaining list
+        for user in users_to_remove:
+            remaining_users.remove(user)
+
+        # Re-optimize route if users were added
+        if users_added_to_route > 0:
+            update_route_metrics_improved(route, office_lat, office_lon)
+
+    # PHASE 3: Handle truly remaining unassigned users with available drivers
     available_drivers_remaining = [d for d in sorted_drivers if str(d['id']) not in used_driver_ids]
-    
+
     if remaining_users and available_drivers_remaining:
         print(f"🔄 Assigning {len(remaining_users)} remaining users to {len(available_drivers_remaining)} available drivers...")
 
@@ -602,16 +818,27 @@ def assign_routes_road_aware(data):
                 routes.append(single_user_route)
                 used_driver_ids.add(str(best_driver['id']))
                 assigned_user_ids.add(str(user['id']))
-                
+
                 # Remove this driver from available pool
                 available_drivers_remaining = [d for d in available_drivers_remaining if str(d['id']) != str(best_driver['id'])]
 
                 print(f"    ✅ Assigned remaining user {user['id']} to driver {best_driver['id']}")
 
-    # Handle unassigned users and drivers
-    unassigned_users = []
-    for user in users:
-        if str(user['id']) not in assigned_user_ids:
+    # PHASE 4: Comprehensive final assignment - assign ANY remaining users to ANY available drivers
+    final_remaining_users = [u for u in users if str(u['id']) not in assigned_user_ids]
+    final_available_drivers = [d for d in all_drivers if str(d['id']) not in used_driver_ids]
+
+    if final_remaining_users and final_available_drivers:
+        print(f"🔄 Phase 4: Final comprehensive assignment for {len(final_remaining_users)} users with {len(final_available_drivers)} drivers...")
+
+        # Create routes for every remaining user, regardless of distance
+        for user in final_remaining_users:
+            if not final_available_drivers:
+                break
+
+            # Use the first available driver
+            driver = final_available_drivers.pop(0)
+
             user_data = {
                 'user_id': str(user['id']),
                 'lat': float(user['latitude']),
@@ -625,9 +852,50 @@ def assign_routes_road_aware(data):
                 user_data['first_name'] = str(user['first_name'])
             if user.get('email'):
                 user_data['email'] = str(user['email'])
+
+            final_route = {
+                'driver_id': str(driver['id']),
+                'vehicle_id': str(driver.get('vehicle_id', '')),
+                'vehicle_type': int(driver['capacity']),
+                'latitude': float(driver['latitude']),
+                'longitude': float(driver['longitude']),
+                'assigned_users': [user_data],
+                'corridor_direction': 'FINAL_ASSIGNMENT'
+            }
+
+            update_route_metrics_improved(final_route, office_lat, office_lon)
+            routes.append(final_route)
+            used_driver_ids.add(str(driver['id']))
+            assigned_user_ids.add(str(user['id']))
+
+            distance = haversine_distance(
+                float(user['latitude']), float(user['longitude']),
+                float(driver['latitude']), float(driver['longitude'])
+            )
+            print(f"    ✅ Final assignment: User {user['id']} → Driver {driver['id']} (distance: {distance:.1f}km)")
+
+    # COMPREHENSIVE FINAL ACCOUNTING
+    
+    unassigned_users = []
+    for user in users:
+        if str(user['id']) not in assigned_user_ids:
+            user_data = {
+                'user_id': str(user['id']),
+                'lat': float(user['latitude']),
+                'lng': float(user['longitude']),
+                'office_distance': haversine_distance(
+                    float(user['latitude']), float(user['longitude']),
+                    office_lat, office_lon
+                ),
+                'reason': 'Not assigned to any route'
+            }
+            if user.get('first_name'):
+                user_data['first_name'] = str(user['first_name'])
+            if user.get('email'):
+                user_data['email'] = str(user['email'])
             unassigned_users.append(user_data)
 
-    unassigned_drivers = []
+    unused_drivers = []
     for driver in all_drivers:
         if str(driver['id']) not in used_driver_ids:
             driver_data = {
@@ -635,19 +903,61 @@ def assign_routes_road_aware(data):
                 'capacity': int(driver['capacity']),
                 'vehicle_id': str(driver.get('vehicle_id', '')),
                 'latitude': float(driver['latitude']),
-                'longitude': float(driver['longitude'])
+                'longitude': float(driver['longitude']),
+                'reason': 'Not assigned any users',
+                'shift_type_id': driver.get('shift_type_id', 'Unknown')
             }
-            unassigned_drivers.append(driver_data)
+            unused_drivers.append(driver_data)
 
-    total_assigned = sum(len(r['assigned_users']) for r in routes)
-    print(f"🎯 Road-aware assignment complete: {len(routes)} routes, {total_assigned} users assigned")
+    total_assigned_users = sum(len(r['assigned_users']) for r in routes)
+    total_capacity = sum(r['vehicle_type'] for r in routes)
+    utilization = (total_assigned_users / total_capacity * 100) if total_capacity > 0 else 0
+
+    print(f"📊 FINAL ASSIGNMENT SUMMARY:")
+    print(f"   🗺️ Road Network Status: {'✅ ACTIVE' if ROAD_NETWORK else '❌ FAILED - Using Geometric Fallback'}")
+    print(f"   📍 Routes Created: {len(routes)}")
+    print(f"   👥 Users Successfully Assigned: {total_assigned_users}")
+    print(f"   🔢 Unique User IDs in Routes: {len(assigned_user_ids)}")
+    print(f"   📊 SUCCESS RATE:")
+    print(f"      • Total API Users: {len(users)}")
+    print(f"      • Successfully Assigned: {len(assigned_user_ids)}")
+    print(f"      • Assignment Rate: {(len(assigned_user_ids)/len(users)*100):.1f}%")
+
+    missing_users = set(str(u['id']) for u in users) - assigned_user_ids
+    if missing_users:
+        print(f"   ❌ LOST USERS ({len(missing_users)}):")
+        for user_id in list(missing_users)[:5]:  # Show first 5
+            user_data = next((u for u in users if str(u['id']) == user_id), {})
+            print(f"      • User {user_id}: {user_data.get('first_name', 'Unknown')} at ({user_data.get('lat', 'N/A')}, {user_data.get('lng', 'N/A')})")
+        if len(missing_users) > 5:
+            print(f"      ... and {len(missing_users)-5} more users")
+
+    print(f"   🚗 Original API Drivers: {total_drivers}")
+    print(f"   ✅ Drivers Used: {len(used_driver_ids)}")
+    print(f"   💤 Drivers Unused: {len(unused_drivers)}")
+
+    if unused_drivers:
+        print(f"   💤 UNUSED DRIVERS ({len(unused_drivers)}):")
+        for driver in unused_drivers[:3]:  # Show first 3
+            print(f"      • Driver {driver['driver_id']}: ST:{driver.get('shift_type_id', 'N/A')}, Cap:{driver.get('capacity', 'N/A')}")
+        if len(unused_drivers) > 3:
+            print(f"      ... and {len(unused_drivers)-3} more drivers")
+
+    print(f"🎯 Road-aware assignment complete: {len(routes)} routes, {total_assigned_users} users assigned")
+    print(f"📊 Overall utilization: {total_assigned_users}/{total_capacity} seats ({(total_assigned_users/total_capacity)*100:.1f}%)")
+    print(f"👥 Final Unassigned: {len(unassigned_users)} users, {len(unused_drivers)} drivers")
+    
+    users_accounted = len(assigned_user_ids) + len(unassigned_users)
+    drivers_accounted = len(used_driver_ids) + len(unused_drivers)
+    print(f"✅ User Accounting: {users_accounted}/{len(users)} ({'✅ COMPLETE' if users_accounted == len(users) else '❌ INCOMPLETE'})")
+    print(f"✅ Driver Accounting: {drivers_accounted}/{total_drivers} ({'✅ COMPLETE' if drivers_accounted == total_drivers else '❌ INCOMPLETE'})")
 
     return {
         "status": "true",
         "data": routes,
         "unassignedUsers": unassigned_users,
-        "unassignedDrivers": unassigned_drivers,
-        "message": f"Road-aware assignment completed with {len(routes)} routes"
+        "unassignedDrivers": unused_drivers,
+        "message": f"Road-aware assignment completed with {len(routes)} routes, {utilization:.1f}% utilization"
     }
 
 def _create_fallback_corridors(users, office_pos):
@@ -723,6 +1033,15 @@ def normalize_bearing_difference(diff):
     while diff < -180:
         diff += 360
     return diff
+
+def calculate_route_center(route):
+    """Calculate center point of a route's users"""
+    if not route['assigned_users']:
+        return (route['latitude'], route['longitude'])
+
+    avg_lat = sum(u['lat'] for u in route['assigned_users']) / len(route['assigned_users'])
+    avg_lng = sum(u['lng'] for u in route['assigned_users']) / len(route['assigned_users'])
+    return (avg_lat, avg_lng)
 
 
 def assign_routes_fallback(data):
@@ -832,7 +1151,7 @@ def assign_routes_fallback(data):
 
         # If any users were assigned to this driver, finalize the route
         if current_route['assigned_users']:
-            # 4. Fix Pickup Sequencing (for 'straight' routes, use sorted-by-office-distance)
+            # Fix Pickup Sequencing (for 'straight' routes, use sorted-by-office-distance)
             route_type = "straight" if mode == "efficiency" else "balanced" if mode == "balanced" else "capacity"
             if route_type == "straight":
                 # Sort users by their office distance to ensure monotonic progression
@@ -879,8 +1198,8 @@ def assign_routes_fallback(data):
                     driver_pos = (route['latitude'], route['longitude'])
                     distance = haversine_distance(user_pos[0], user_pos[1], driver_pos[0], driver_pos[1])
 
-                    # More relaxed constraints: up to 15km distance for distant users
-                    if distance < 15.0 and distance < best_distance:
+                    # More relaxed constraints: up to 25km distance for distant users
+                    if distance < 25.0 and distance < best_distance:
                         best_distance = distance
                         best_route = route
 
@@ -943,7 +1262,7 @@ def assign_routes_fallback(data):
             # Update route metrics
             update_route_metrics_improved(emergency_route, office_lat, office_lon)
             routes.append(emergency_route)
-            used_driver_ids.add(emergency_driver['id'])
+            used_driver_ids.add(str(emergency_driver['id']))
 
             distance = haversine_distance(float(user['latitude']), float(user['longitude']),
                                         float(emergency_driver['latitude']), float(emergency_driver['longitude']))
@@ -966,7 +1285,7 @@ def assign_routes_fallback(data):
             unassigned_users.append(user_data)
 
     unassigned_drivers = []
-    for _, driver in pd.DataFrame(all_drivers).iterrows(): # Use DataFrame for easier filtering
+    for driver in all_drivers: # Direct iteration over list
         if str(driver['id']) not in used_driver_ids:
             driver_data = {
                 'driver_id': str(driver['id']),
@@ -978,14 +1297,19 @@ def assign_routes_fallback(data):
             unassigned_drivers.append(driver_data)
 
     total_assigned = sum(len(r['assigned_users']) for r in routes)
+    total_capacity = sum(r['vehicle_type'] for r in routes)
+    utilization = (total_assigned / total_capacity * 100) if total_capacity > 0 else 0
+
     print(f"🎯 Road-aware assignment complete: {len(routes)} routes, {total_assigned} users assigned")
+    print(f"📊 Overall utilization: {total_assigned}/{total_capacity} seats ({utilization:.1f}%)")
+    print(f"👥 Unassigned: {len(unassigned_users)} users, {len(unassigned_drivers)} drivers")
 
     return {
         "status": "true",
         "data": routes,
         "unassignedUsers": unassigned_users,
         "unassignedDrivers": unassigned_drivers,
-        "message": f"Road-aware assignment completed with {len(routes)} routes"
+        "message": f"Road-aware assignment completed with {len(routes)} routes, {utilization:.1f}% utilization"
     }
 
 
