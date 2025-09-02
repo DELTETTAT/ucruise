@@ -17,11 +17,26 @@ class RoadNetwork:
         """Initialize road network from GraphML file"""
         try:
             self.graph = nx.read_graphml(graphml_path)
+            
             # Convert to undirected if needed
             if self.graph.is_directed():
                 self.graph = self.graph.to_undirected()
+            
+            # Convert MultiGraph to simple Graph to avoid edge key issues
+            if self.graph.is_multigraph():
+                print("🔄 Converting MultiGraph to simple Graph...")
+                simple_graph = nx.Graph()
+                simple_graph.add_nodes_from(self.graph.nodes(data=True))
+                
+                # Add edges, keeping only the first edge if multiple exist between same nodes
+                for u, v, data in self.graph.edges(data=True):
+                    if not simple_graph.has_edge(u, v):
+                        simple_graph.add_edge(u, v, **data)
+                
+                self.graph = simple_graph
+                print("✅ MultiGraph converted to simple Graph")
 
-            print(f"✅ Road network loaded: {len(self.graph.nodes)} nodes, {len(self.graph.edges)} edges")
+            print(f"✅ Road network loaded: {len(self.graph.nodes)} nodes, {self.graph.number_of_edges()} edges")
 
             # Build node positions dictionary for faster lookups
             self.node_positions = {}
@@ -41,6 +56,10 @@ class RoadNetwork:
             # Initialize edge weights and spatial index
             self._prepare_network()
 
+            # Add caching for expensive computations
+            self._path_length_cache = {}  # Cache for (node1, node2) -> distance
+            self._node_cache = {}  # Cache for (lat, lon) -> (node, distance)
+
         except Exception as e:
             raise Exception(f"Failed to load road network: {e}")
 
@@ -48,8 +67,8 @@ class RoadNetwork:
         """Find shortest path between two geographic positions"""
         try:
             # Find nearest nodes to start and end positions
-            start_node = self.find_nearest_road_node(start_pos[0], start_pos[1])
-            end_node = self.find_nearest_road_node(end_pos[0], end_pos[1])
+            start_node, _ = self.find_nearest_road_node(start_pos[0], start_pos[1])
+            end_node, _ = self.find_nearest_road_node(end_pos[0], end_pos[1])
 
             if start_node is None or end_node is None:
                 return None
@@ -68,8 +87,8 @@ class RoadNetwork:
         Uses modified Dijkstra with strong directional bias toward main route (driver → office).
         """
         try:
-            start_node = self.find_nearest_road_node(start_pos[0], start_pos[1])
-            end_node = self.find_nearest_road_node(end_pos[0], end_pos[1])
+            start_node, _ = self.find_nearest_road_node(start_pos[0], start_pos[1])
+            end_node, _ = self.find_nearest_road_node(end_pos[0], end_pos[1])
 
             if start_node is None or end_node is None:
                 return None
@@ -123,15 +142,23 @@ class RoadNetwork:
         print("🔧 Preparing road network indices...")
 
         # Add distance-based weights to edges
+        edge_weights = {}
         for u, v, data in self.graph.edges(data=True):
             if 'weight' not in data:
-                node1 = self.node_positions[u]
-                node2 = self.node_positions[v]
-                distance = self._calculate_distance(node1[0], node1[1], node2[0], node2[1])
-                # Use set_edge_attributes instead of direct assignment
-                nx.set_edge_attributes(self.graph, {(u, v): distance}, 'weight')
+                if u in self.node_positions and v in self.node_positions:
+                    node1 = self.node_positions[u]
+                    node2 = self.node_positions[v]
+                    distance = self._calculate_distance(node1[0], node1[1], node2[0], node2[1])
+                    edge_weights[(u, v)] = distance
+                else:
+                    # Handle cases where node positions might be missing for an edge
+                    edge_weights[(u, v)] = 1.0  # Default weight
+        
+        # Set edge weights using NetworkX method compatible with all versions
+        for (u, v), weight in edge_weights.items():
+            self.graph.edges[u, v]['weight'] = weight
 
-        print(f"✅ Edge weights set for {len(self.graph.edges)} edges")
+        print(f"✅ Edge weights set for {self.graph.number_of_edges()} edges")
 
         # Build spatial index for fast nearest neighbor queries
         try:
@@ -161,87 +188,91 @@ class RoadNetwork:
     @staticmethod
     def _calculate_distance(lat1: float, lon1: float, lat2: float,
                             lon2: float) -> float:
-        """Calculate haversine distance between two points"""
+        """Calculate haversine distance between two points in km"""
         R = 6371.0  # Earth radius in kilometers
-        lat1, lon1, lat2, lon2 = map(math.radians, [lat1, lon1, lat2, lon2])
-        dlat = lat2 - lat1
-        dlon = lon2 - lon1
-        a = math.sin(dlat / 2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(
+        lat1_rad, lon1_rad, lat2_rad, lon2_rad = map(math.radians, [lat1, lon1, lat2, lon2])
+        dlat = lat2_rad - lat1_rad
+        dlon = lon2_rad - lon1_rad
+        a = math.sin(dlat / 2)**2 + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(
             dlon / 2)**2
         c = 2 * math.asin(math.sqrt(a))
         return R * c
 
-    def find_nearest_road_node(self, lat: float, lon: float, max_search_km=2.0):
-        """Find the nearest road network node to given coordinates"""
-        if not self.node_positions:
-            return None
+    def find_nearest_road_node(self, lat, lon, max_search_km=2.0):
+        """Find the nearest road network node to a given position
+        Returns: (node_id, distance_km) or (None, float('inf')) if too far
+        """
+        if not hasattr(self, '_kdtree') or not self._kdtree or not self.node_positions:
+            print("⚠️ Spatial index (KDTree) unavailable — find_nearest_road_node will always return None")
+            return None, float('inf')
 
-        # Try to use spatial index if available
-        if hasattr(self, '_kdtree') and self._kdtree is not None:
-            try:
-                dist, idx = self._kdtree.query((lat, lon))
-                node_id = self._node_list[idx]
-                node_lat, node_lon = self.node_positions[node_id]
-                d_km = self._calculate_distance(lat, lon, node_lat, node_lon)
+        # Query the KDTree for the nearest node
+        distance, idx = self._kdtree.query([lat, lon])
 
-                if d_km <= max_search_km:
-                    return node_id
-                else:
-                    print(f"⚠️ Nearest node is {d_km:.2f}km away (>{max_search_km}km)")
-                    return node_id  # Return anyway but log the distance
-            except Exception as e:
-                print(f"⚠️ KDTree query failed: {e}, falling back to linear search")
+        if idx < len(self._node_list):
+            node_id = self._node_list[idx]
+            # Approximate conversion from KDTree distance to km.
+            # This assumes KDTree uses Euclidean distance on lat/lon, which is a rough approximation.
+            # For more accuracy, one might need to transform coordinates or use a geographic KDTree.
+            distance_km = distance * 111.0  # Rough conversion to km (1 degree lat/lon approx 111km)
 
-        # Fallback to linear search
-        nearest_node = None
-        min_distance = float('inf')
+            if distance_km > max_search_km:
+                print(f"Warning: Nearest node {node_id} is {distance_km:.2f}km away (max: {max_search_km}km)")
+                return None, distance_km
 
-        for node, (node_lat, node_lon) in self.node_positions.items():
-            distance = self._calculate_distance(lat, lon, node_lat, node_lon)
-            if distance < min_distance:
-                min_distance = distance
-                nearest_node = node
+            return node_id, distance_km
 
-        # Relaxed cutoff - return node even if slightly distant
-        if min_distance > max_search_km:
-            print(f"⚠️ Nearest node is {min_distance:.2f}km away (>{max_search_km}km)")
-
-        return nearest_node
+        return None, float('inf')
 
 
-    @lru_cache(maxsize=1000)
     def get_road_distance(self, lat1: float, lon1: float, lat2: float,
-                          lon2: float) -> float:
-        """Get road network distance between two points"""
+                          lon2: float, max_distance_km=50):
+        """Calculate road distance between two points using shortest path"""
         try:
-            node1 = self.find_nearest_road_node(lat1, lon1)
-            node2 = self.find_nearest_road_node(lat2, lon2)
+            node1, dist1 = self.find_nearest_road_node(lat1, lon1)
+            node2, dist2 = self.find_nearest_road_node(lat2, lon2)
 
-            if not node1 or not node2:
-                # Fallback to straight-line distance if no road nodes found
+            # Reject if either node is too far from road network or no nodes found
+            if not node1 or not node2 or dist1 > 3.0 or dist2 > 3.0:
+                # Fallback to haversine if no road path found or points are too far from roads
                 return self._calculate_distance(lat1, lon1, lat2, lon2)
 
             if node1 == node2:
+                # If start and end points map to the same road node, use haversine distance
+                # or a direct road segment distance if available and more accurate.
+                # For simplicity, we use haversine here.
                 return self._calculate_distance(lat1, lon1, lat2, lon2)
 
-            # Calculate shortest path on road network
-            try:
-                path_length = nx.shortest_path_length(self.graph,
+            # Calculate shortest path on road network using cached function
+            cache_key = (min(node1, node2), max(node1, node2))
+            if cache_key in self._path_length_cache:
+                path_length = self._path_length_cache[cache_key]
+            else:
+                try:
+                    path_length = nx.shortest_path_length(self.graph,
                                                       node1,
                                                       node2,
                                                       weight='weight')
+                    # Cache the result
+                    self._path_length_cache[cache_key] = path_length
+                    # Limit cache size to prevent memory issues
+                    if len(self._path_length_cache) > 10000:
+                        # Clear oldest entries (simple FIFO)
+                        old_keys = list(self._path_length_cache.keys())[:5000]
+                        for old_key in old_keys:
+                            del self._path_length_cache[old_key]
+                except nx.NetworkXNoPath:
+                    # No path found, fallback to haversine
+                    path_length = self._calculate_distance(lat1, lon1, lat2, lon2)
+                    self._path_length_cache[cache_key] = path_length # Cache fallback result
 
-                # Add distance from points to nearest road nodes
-                dist_to_road1 = self._calculate_distance(
-                    lat1, lon1, *self.node_positions[node1])
-                dist_to_road2 = self._calculate_distance(
-                    lat2, lon2, *self.node_positions[node2])
+            # Add distance from points to nearest road nodes
+            dist_to_road1 = self._calculate_distance(
+                lat1, lon1, *self.node_positions[node1])
+            dist_to_road2 = self._calculate_distance(
+                lat2, lon2, *self.node_positions[node2])
 
-                return path_length + dist_to_road1 + dist_to_road2
-
-            except nx.NetworkXNoPath:
-                # No path found, use straight-line distance
-                return self._calculate_distance(lat1, lon1, lat2, lon2)
+            return path_length + dist_to_road1 + dist_to_road2
 
         except Exception:
             # Any error, fallback to straight-line distance
@@ -313,137 +344,76 @@ class RoadNetwork:
     def is_user_on_route_path(self,
                               driver_pos: Tuple[float, float],
                               existing_users: List[Tuple[float, float]],
-                              candidate_user: Tuple[float, float],
+                              candidate_pos: Tuple[float, float],
                               office_pos: Tuple[float, float],
-                              max_detour_ratio=1.2,
+                              max_detour_ratio=1.25,
                               route_type: str = "balanced") -> bool:
         """
-        Check if adding a candidate user creates a reasonable detour
-        based on road network distances with route-type-specific validation.
+        Check if a candidate user fits well along the existing route path.
         """
-        # Get route-specific constraints - relaxed for better assignment
-        if route_type == "straight":
-            max_detour_ratio = max_detour_ratio or 1.25  # Relaxed from 1.15
-            max_path_deviation = 0.5  # Relaxed from 0.3
-        elif route_type == "balanced":
-            max_detour_ratio = max_detour_ratio or 1.3   # Slightly relaxed
-            max_path_deviation = 0.7  # Relaxed from 0.5
-        else:  # capacity
-            max_detour_ratio = max_detour_ratio or 1.5
-            max_path_deviation = 1.0  # Relaxed from 0.7
+        try:
+            # Get road distance from driver to candidate and candidate to office
+            driver_to_candidate = self.get_road_distance(driver_pos[0], driver_pos[1], candidate_pos[0], candidate_pos[1])
+            candidate_to_office = self.get_road_distance(candidate_pos[0], candidate_pos[1], office_pos[0], office_pos[1])
 
-        if not existing_users:
-            # First user - use directional path finding for better validation
-            direct_path = self.find_directional_path(driver_pos, office_pos)
-            if direct_path:
-                direct_distance = self._calculate_path_distance_from_nodes(direct_path)
-            else:
-                direct_distance = self.get_road_distance(*driver_pos, *office_pos)
+            # Get direct driver to office distance
+            driver_to_office = self.get_road_distance(driver_pos[0], driver_pos[1], office_pos[0], office_pos[1])
 
-            # Calculate distance via user using directional paths
-            user_path1 = self.find_directional_path(driver_pos, candidate_user)
-            user_path2 = self.find_directional_path(candidate_user, office_pos)
+            # Calculate detour ratio
+            total_route_distance = driver_to_candidate + candidate_to_office
+            detour_ratio = total_route_distance / max(driver_to_office, 0.1)
 
-            if user_path1 and user_path2:
-                via_user_distance = (
-                    self._calculate_path_distance_from_nodes(user_path1) +
-                    self._calculate_path_distance_from_nodes(user_path2)
-                )
-            else:
-                via_user_distance = (
-                    self.get_road_distance(*driver_pos, *candidate_user) +
-                    self.get_road_distance(*candidate_user, *office_pos)
-                )
+            # Adjust thresholds based on route type (more lenient)
+            if route_type == "straight":
+                max_allowed_detour = min(max_detour_ratio, 1.2)  # Relaxed from 1.15
+            elif route_type == "capacity":
+                max_allowed_detour = max(max_detour_ratio, 1.6)  # Relaxed from 1.5
+            else:  # balanced
+                max_allowed_detour = max_detour_ratio * 1.1  # 10% more lenient
 
-            detour_ratio = via_user_distance / max(direct_distance, 0.1)
+            # Primary detour check
+            if detour_ratio <= max_allowed_detour:
+                return True
 
-            # Check if candidate deviates too much from the driver-to-office path
-            straight_line_deviation = self._point_to_line_distance(candidate_user, driver_pos, office_pos)
-            direct_distance = self._calculate_distance(*driver_pos, *office_pos)
+            # Fallback: Check proximity to route path nodes (road-aware proximity)
+            candidate_node, candidate_dist = self.find_nearest_road_node(candidate_pos[0], candidate_pos[1])
+            if candidate_node and candidate_dist <= 1.0:  # Within 1km of road network
+                # Check if candidate is near the path between driver and office
+                driver_node, _ = self.find_nearest_road_node(driver_pos[0], driver_pos[1])
+                office_node, _ = self.find_nearest_road_node(office_pos[0], office_pos[1])
 
-            if straight_line_deviation > direct_distance * max_path_deviation:
-                # Try road-aware check before rejecting
-                try:
-                    path_nodes = self.find_directional_path(driver_pos, office_pos)
-                    if path_nodes:
-                        # Check distance from candidate to nearest node in the path
-                        nearest_path_distance = min(
-                            self._calculate_distance(candidate_user[0], candidate_user[1], 
-                                                   *self.node_positions[node]) 
-                            for node in path_nodes if node in self.node_positions
-                        )
-                        # Allow if user is within 1km of the road path
-                        if nearest_path_distance <= 1.0:
-                            print(f"    ✅ User allowed via road-aware check (path distance: {nearest_path_distance:.2f}km)")
-                            pass  # Allow the user
-                        else:
-                            return False
-                    else:
-                        return False
-                except Exception as e:
-                    # If road-aware check fails, use relaxed straight-line check
-                    if straight_line_deviation > direct_distance * (max_path_deviation * 1.5):
-                        return False
+                if driver_node and office_node:
+                    try:
+                        # Get the shortest path nodes
+                        path = nx.shortest_path(self.graph, driver_node, office_node, weight='weight')
 
-            return detour_ratio <= max_detour_ratio
+                        # Check if candidate is close to any node in the path
+                        for path_node in path:
+                            if path_node in self.node_positions:
+                                path_pos = self.node_positions[path_node]
+                                path_distance = self._calculate_distance(
+                                    candidate_pos[0], candidate_pos[1], 
+                                    path_pos[0], path_pos[1]
+                                )
+                                if path_distance <= 0.8:  # Within 800m of path node
+                                    return True
+                    except nx.NetworkXNoPath:
+                        pass # No path, continue to next check
+                    except Exception as e:
+                        print(f"Error during path proximity check: {e}") # Log other errors
 
-        # For existing routes, be more strict about coherence
-        current_route = [driver_pos] + existing_users + [office_pos]
-        current_distance = 0.0
-        for i in range(len(current_route) - 1):
-            current_distance += self.get_road_distance(*current_route[i],
-                                                       *current_route[i + 1])
+            return False
 
-        # Calculate new route distance with candidate user
-        # Try inserting user at best position
-        best_distance = float('inf')
-        best_position = -1
-
-        for insert_pos in range(1, len(current_route)):
-            new_route = current_route.copy()
-            new_route.insert(insert_pos, candidate_user)
-
-            new_distance = 0.0
-            for i in range(len(new_route) - 1):
-                new_distance += self.get_road_distance(*new_route[i],
-                                                       *new_route[i + 1])
-
-            if new_distance < best_distance:
-                best_distance = new_distance
-                best_position = insert_pos
-
-        # Check if detour is reasonable
-        detour_ratio = best_distance / max(current_distance, 0.1)
-
-        # Additional coherence check - ensure the new route makes sense directionally
-        if best_position > 0:
-            # Check if the insertion creates logical geographical progression
-            prev_pos = current_route[best_position - 1]
-            next_pos = current_route[best_position] if best_position < len(
-                current_route) else office_pos
-
-            # Calculate bearings to ensure logical progression
-            bearing_to_candidate = self._calculate_bearing(
-                *prev_pos, *candidate_user)
-            bearing_to_next = self._calculate_bearing(*candidate_user,
-                                                      *next_pos)
-            bearing_direct = self._calculate_bearing(*prev_pos, *next_pos)
-
-            # Check if the path makes geographical sense
-            bearing_diff = abs(bearing_to_candidate - bearing_direct)
-            if bearing_diff > 180:
-                bearing_diff = 360 - bearing_diff
-
-            # Reject if requires too much directional change (>45 degrees)
-            if bearing_diff > 45:
-                return False
-
-        return detour_ratio <= max_detour_ratio
+        except Exception as e:
+            # More conservative fallback: check if candidate is within a reasonable distance
+            # from the driver's position, as a last resort.
+            straight_line_distance = self._calculate_distance(driver_pos[0], driver_pos[1], candidate_pos[0], candidate_pos[1])
+            return straight_line_distance <= 8.0  # Within 8km
 
     def _point_to_line_distance(self, point: Tuple[float, float],
                                 line_start: Tuple[float, float],
                                 line_end: Tuple[float, float]) -> float:
-        """Calculate perpendicular distance from point to line segment"""
+        """Calculate perpendicular distance from point to line segment in km"""
         import math
 
         # Convert to approximate Cartesian coordinates for distance calculation
@@ -453,8 +423,9 @@ class RoadNetwork:
 
         # Convert lat/lng to meters (approximate)
         lat_to_m = 111320.0  # meters per degree latitude
-        lng_to_m = 111320.0 * math.cos(math.radians(
-            point[0]))  # longitude varies by latitude
+        # Use average latitude for longitude conversion for better approximation
+        avg_lat = (y1 + y2) / 2.0 if line_start != line_end else y1
+        lng_to_m = 111320.0 * math.cos(math.radians(avg_lat))
 
         x0_m, y0_m = x0 * lat_to_m, y0 * lng_to_m
         x1_m, y1_m = x1 * lat_to_m, y1 * lng_to_m
@@ -476,10 +447,13 @@ class RoadNetwork:
         param = dot / len_sq
 
         if param < 0:
+            # Closest point is line_start
             xx, yy = x1_m, y1_m
         elif param > 1:
+            # Closest point is line_end
             xx, yy = x2_m, y2_m
         else:
+            # Closest point is projection on the line segment
             xx = x1_m + param * C
             yy = y1_m + param * D
 
@@ -489,14 +463,16 @@ class RoadNetwork:
 
     def _calculate_bearing(self, lat1: float, lon1: float, lat2: float,
                            lon2: float) -> float:
-        """Calculate bearing between two points"""
+        """Calculate bearing between two points in degrees"""
         import math
-        lat1, lat2 = map(math.radians, [lat1, lat2])
-        dlon = math.radians(lon2 - lon1)
-        x = math.sin(dlon) * math.cos(lat2)
-        y = math.cos(lat1) * math.sin(lat2) - math.sin(lat1) * math.cos(
-            lat2) * math.cos(dlon)
-        return (math.degrees(math.atan2(x, y)) + 360) % 360
+        lat1_rad, lon1_rad, lat2_rad, lon2_rad = map(math.radians, [lat1, lon1, lat2, lon2])
+        dlon = lon2_rad - lon1_rad
+        x = math.sin(dlon) * math.cos(lat2_rad)
+        y = math.cos(lat1_rad) * math.sin(lat2_rad) - math.sin(lat1_rad) * math.cos(
+            lat2_rad) * math.cos(dlon)
+        initial_bearing = math.atan2(x, y)
+        # Normalize to 0-360 degrees
+        return (math.degrees(initial_bearing) + 360) % 360
 
     def _calculate_directional_penalty(
             self, route_points: List[Tuple[float, float]]) -> float:
@@ -525,7 +501,7 @@ class RoadNetwork:
         total_penalty = 0.0
         for change in bearing_changes:
             if change > 45:  # Sharp turn
-                total_penalty += (change - 45) / 135  # Normalize to 0-1 scale
+                total_penalty += (change - 45) / 135  # Normalize to 0-1 scale (max 180->135)
 
         # Normalize by number of segments
         return min(1.0, total_penalty / max(1, len(bearing_changes)))
@@ -540,7 +516,7 @@ class RoadNetwork:
         driver_pos = route_points[0]
         penalty = 0.0
 
-        # Calculate initial distance to office
+        # Calculate initial distance to office from driver's start position
         prev_distance_to_office = self._calculate_distance(
             *driver_pos, *office_pos)
 
@@ -553,8 +529,8 @@ class RoadNetwork:
             # Penalty if we're moving further from office
             if current_distance_to_office > prev_distance_to_office:
                 backtrack_amount = current_distance_to_office - prev_distance_to_office
-                penalty += min(0.5, backtrack_amount /
-                               10.0)  # Max 0.5 penalty per point
+                # Apply a scaled penalty, capped to avoid excessive penalties
+                penalty += min(0.5, backtrack_amount / 10.0)  # Max 0.5 penalty per point, scaled by distance
 
             prev_distance_to_office = current_distance_to_office
 
@@ -571,6 +547,11 @@ class RoadNetwork:
                 pos1 = self.node_positions[path_nodes[i]]
                 pos2 = self.node_positions[path_nodes[i+1]]
                 total_distance += self._calculate_distance(pos1[0], pos1[1], pos2[0], pos2[1])
+            else:
+                # Handle cases where node positions might be missing
+                print(f"Warning: Missing position for node in path calculation: {path_nodes[i]} or {path_nodes[i+1]}")
+                # Could fallback to a default distance or skip
+                pass
 
         return total_distance
 
@@ -623,6 +604,9 @@ class RoadNetwork:
                 pickup_sequence.append(best_user_idx)
                 remaining_users.remove(best_user_idx)
                 current_pos = user_positions[best_user_idx]
+            else:
+                # Should not happen if remaining_users is not empty, but as a safeguard
+                break
 
         # Step 2: Apply 2-opt improvement
         pickup_sequence = self._apply_2opt_improvement(pickup_sequence, user_positions, driver_pos, office_pos)
@@ -647,11 +631,13 @@ class RoadNetwork:
             )
 
             for i in range(len(current_sequence) - 1):
-                for j in range(i + 2, len(current_sequence)):
-                    # Create new sequence by reversing the segment between i+1 and j
-                    new_sequence = (current_sequence[:i+1] + 
-                                   current_sequence[i+1:j+1][::-1] + 
-                                   current_sequence[j+1:])
+                for j in range(i + 1, len(current_sequence)): # Start j from i+1 for valid swaps
+                    # Create new sequence by reversing the segment between i and j (inclusive)
+                    # The segment to reverse is from index i to j (inclusive)
+                    # new_sequence = current_sequence[:i] + current_sequence[i:j+1][::-1] + current_sequence[j+1:]
+                    
+                    # Correct 2-opt swap: reverse segment between i+1 and j
+                    new_sequence = current_sequence[:i+1] + current_sequence[i+1:j+1][::-1] + current_sequence[j+1:]
 
                     new_distance = self._calculate_sequence_total_distance(
                         new_sequence, user_positions, driver_pos, office_pos
@@ -661,10 +647,10 @@ class RoadNetwork:
                         current_sequence = new_sequence
                         current_distance = new_distance
                         improved = True
-                        break
-
+                        # Break inner loop and restart outer loop to ensure best improvement per iteration
+                        break  
                 if improved:
-                    break
+                    break # Restart outer loop if improvement found
 
         return current_sequence
 
