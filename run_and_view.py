@@ -1,14 +1,52 @@
-
 import subprocess
 import threading
 import time
 import webbrowser
 import sys
+import argparse
 from assignment import run_assignment, analyze_assignment_quality
 
 SOURCE_ID = "UC_unify_dev"  # <-- Replace with your real source_id
 PARAMETER = 1  # Example numerical parameter
 STRING_PARAM = "Evening%20shift" # Example string parameter
+
+def get_user_choice():
+    """Get user's choice for assignment algorithm"""
+    print("\n🚗 ROUTEFLOW - INTELLIGENT ASSIGNMENT SYSTEM")
+    print("=" * 60)
+    print("Please select which assignment algorithm to run:")
+    print()
+    print("1. 🎯 ROUTE EFFICIENCY (assignment.py)")
+    print("   - Prioritizes compact routes with minimal zigzag")
+    print("   - Strict quality control for route turning")
+    print("   - Best for: Short, direct routes")
+    print()
+    print("2. 🎪 CAPACITY OPTIMIZATION (assign_capacity.py)")
+    print("   - Prioritizes seat filling over route efficiency")
+    print("   - Allows zigzag routes for maximum capacity")
+    print("   - Best for: High utilization scenarios")
+    print()
+    print("3. ⚖️  BALANCED OPTIMIZATION (assign_balance.py)")
+    print("   - Balances route efficiency and capacity utilization")
+    print("   - Moderate constraints on both aspects")
+    print("   - Best for: General purpose optimization")
+    print()
+    print("4. 🗺️  ROAD-AWARE ROUTING (assign_route.py)")
+    print("   - Uses actual road network data for routing")
+    print("   - Considers real road paths and conditions")
+    print("   - Best for: Real-world accurate routing")
+    print()
+
+    while True:
+        try:
+            choice = input("Enter your choice (1, 2, 3, or 4): ").strip()
+            if choice in ['1', '2', '3', '4']:
+                return int(choice)
+            else:
+                print("❌ Please enter 1, 2, 3, or 4")
+        except (ValueError, KeyboardInterrupt):
+            print("\n🛑 Operation cancelled by user")
+            exit(0)
 
 def start_fastapi():
     subprocess.run(["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "3000", "--reload"])
@@ -22,10 +60,10 @@ def launch_browser():
         print(f"⚠️  Could not auto-open browser: {e}")
         print("   Please manually visit: http://localhost:3000/visualize")
 
-def display_detailed_analytics(result):
+def display_detailed_analytics(result, algorithm_name):
     """Display comprehensive analytics in terminal with enhanced formatting"""
     print("\n" + "🎯" + "="*78 + "🎯")
-    print("📊 ROUTEFLOW - INTELLIGENT ASSIGNMENT DASHBOARD")
+    print(f"📊 ROUTEFLOW - INTELLIGENT ASSIGNMENT DASHBOARD ({algorithm_name})")
     print("🎯" + "="*78 + "🎯")
 
     if result["status"] != "true":
@@ -59,6 +97,7 @@ def display_detailed_analytics(result):
     # Enhanced Overview Section
     print(f"\n📈 SYSTEM OVERVIEW")
     print("─" * 50)
+    print(f"   🤖 Algorithm Used: {result.get('algorithm_type', 'Unknown')}")
     print(f"   🚗 Active Routes Created: {len(routes)}")
     print(f"   👥 Users Successfully Assigned: {total_assigned}")
     print(f"   ⚠️  Users Unassigned: {len(unassigned_users)}")
@@ -326,25 +365,66 @@ def haversine_distance(lat1, lon1, lat2, lon2):
     return c * r
 
 if __name__ == "__main__":
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='Driver Assignment Dashboard')
+    parser.add_argument('--mode', type=int, choices=[1, 2, 3, 4], 
+                       help='Assignment mode: 1=Route Efficiency, 2=Capacity Optimization, 3=Balanced, 4=Road-Aware')
+    args = parser.parse_args()
+
     print("🚀 Starting Driver Assignment Dashboard...")
     print(f"📍 Source ID: {SOURCE_ID}")
-    print("-" * 50)
 
     try:
-        print("⏳ Running assignment algorithm...")
-        result = run_assignment(SOURCE_ID, PARAMETER, STRING_PARAM)
+        # Get user's choice (from command line or interactive)
+        if args.mode:
+            choice = args.mode
+            mode_names = {1: "ROUTE EFFICIENCY", 2: "CAPACITY OPTIMIZATION", 3: "BALANCED OPTIMIZATION", 4: "ROAD-AWARE ROUTING"}
+            print(f"🎯 Using command line mode: {mode_names[choice]}")
+        else:
+            choice = get_user_choice()
+
+        print("-" * 50)
+
+        # Import the selected assignment function
+        if choice == 1:
+            from assignment import run_assignment
+            assignment_func = run_assignment
+            algorithm_name = "ROUTE EFFICIENCY"
+            output_file = "drivers_and_routes.json"
+        elif choice == 2:
+            from assign_capacity import run_assignment_capacity
+            assignment_func = run_assignment_capacity
+            algorithm_name = "CAPACITY OPTIMIZATION"
+            output_file = "drivers_and_routes_capacity.json"
+        elif choice == 3:
+            from assign_balance import run_assignment_balance
+            assignment_func = run_assignment_balance
+            algorithm_name = "BALANCED OPTIMIZATION"
+            output_file = "drivers_and_routes_balance.json"
+        else:  # choice == 4
+            from assign_route import run_road_aware_assignment
+            assignment_func = run_road_aware_assignment
+            algorithm_name = "ROAD-AWARE ROUTING"
+            output_file = "drivers_and_routes_road_aware.json"
+
+        print(f"⏳ Running {algorithm_name} assignment algorithm...")
+        result = assignment_func(SOURCE_ID, PARAMETER, STRING_PARAM)
 
         if result["status"] == "true":
-            print("✅ Assignment completed successfully!")
+            print(f"✅ {algorithm_name} assignment completed successfully!")
 
             # Save results
             import json
+            with open(output_file, "w") as f:
+                json.dump(result["data"], f, indent=2)
+            print(f"💾 Results saved to {output_file}")
+
+            # Also save to the default filename for visualization compatibility
             with open("drivers_and_routes.json", "w") as f:
                 json.dump(result["data"], f, indent=2)
-            print("💾 Results saved to drivers_and_routes.json")
 
             # Display detailed analytics
-            display_detailed_analytics(result)
+            display_detailed_analytics(result, algorithm_name)
 
             # Additional quality analysis
             quality_analysis = analyze_assignment_quality(result)

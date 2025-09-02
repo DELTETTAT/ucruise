@@ -1412,8 +1412,11 @@ def calculate_route_turning_score_improved(users, driver_pos, office_pos):
                                               users[0]['lat'], users[0]['lng'])
         elif i == len(users):
             # Last user to office
-            current_bearing = calculate_bearing(users[i-1]['lat'], users[i-1]['lng'],
-                                              office_pos[0], office_pos[1])
+            if len(users) > 0:
+                current_bearing = calculate_bearing(users[i-1]['lat'], users[i-1]['lng'],
+                                                  office_pos[0], office_pos[1])
+            else:
+                continue
         else:
             # Between users
             current_bearing = calculate_bearing(users[i-1]['lat'], users[i-1]['lng'],
@@ -1636,7 +1639,7 @@ def global_optimization(routes, user_df, assigned_user_ids, driver_df, office_la
     # Handle remaining unassigned users
     remaining_unassigned_users_df = user_df[~user_df['user_id'].isin(assigned_user_ids)]
     unassigned_list = handle_remaining_users_improved(remaining_unassigned_users_df, driver_df, routes, office_lat, office_lon)
-    
+
     # Add failed outlier reassignments to unassigned list
     if failed_outlier_reassignments:
         print(f"  📋 Adding {len(failed_outlier_reassignments)} failed outlier reassignments to unassigned list")
@@ -1644,6 +1647,129 @@ def global_optimization(routes, user_df, assigned_user_ids, driver_df, office_la
 
     print("  ✅ Enhanced global optimization completed")
     return routes, unassigned_list
+
+
+# STEP 6: FINAL-PASS MERGE ALGORITHM
+def final_pass_merge(routes, config, office_lat, office_lon):
+    """
+    Final-pass merge algorithm: Loop over all pairs of routes and merge compatible ones
+    """
+    print("🔄 Step 6: Final-pass merge algorithm...")
+
+    merged_routes = []
+    used = set()
+    MERGE_BEARING_THRESHOLD = 30  # degrees
+    MERGE_DISTANCE_KM = config.get("MERGE_DISTANCE_KM", 3.0)
+
+    for i, r1 in enumerate(routes):
+        if i in used:
+            continue
+
+        best_merge = None
+        best_merge_quality = float('inf')
+
+        for j, r2 in enumerate(routes):
+            if j <= i or j in used:
+                continue
+
+            # 1. Check direction similarity
+            b1 = calculate_average_bearing_improved(r1, office_lat, office_lon)
+            b2 = calculate_average_bearing_improved(r2, office_lat, office_lon)
+            bearing_diff = bearing_difference(b1, b2)
+
+            if bearing_diff > MERGE_BEARING_THRESHOLD:
+                continue
+
+            # 2. Check centroid distance
+            c1 = calculate_route_center_improved(r1)
+            c2 = calculate_route_center_improved(r2)
+            centroid_distance = haversine_distance(c1[0], c1[1], c2[0], c2[1])
+
+            if centroid_distance > MERGE_DISTANCE_KM:
+                continue
+
+            # 3. Check combined capacity
+            total_users = len(r1['assigned_users']) + len(r2['assigned_users'])
+            max_capacity = max(r1['vehicle_type'], r2['vehicle_type'])
+
+            if total_users > max_capacity:
+                continue
+
+            # 4. Test merge quality
+            # Choose better positioned driver
+            combined_center = calculate_combined_route_center(r1, r2)
+            dist1 = haversine_distance(r1['latitude'], r1['longitude'], combined_center[0], combined_center[1])
+            dist2 = haversine_distance(r2['latitude'], r2['longitude'], combined_center[0], combined_center[1])
+
+            better_route = r1 if dist1 <= dist2 else r2
+
+            # Create test merged route
+            test_route = better_route.copy()
+            test_route['assigned_users'] = r1['assigned_users'] + r2['assigned_users']
+            test_route['vehicle_type'] = max_capacity
+
+            # Optimize sequence for merged route
+            test_route = optimize_route_sequence_improved(test_route, office_lat, office_lon)
+
+            # Calculate quality metrics
+            turning_score = calculate_route_turning_score_improved(
+                test_route['assigned_users'],
+                (test_route['latitude'], test_route['longitude']),
+                (office_lat, office_lon)
+            )
+
+            tortuosity = calculate_tortuosity_ratio_improved(
+                test_route['assigned_users'],
+                (test_route['latitude'], test_route['longitude']),
+                (office_lat, office_lon)
+            )
+
+            direction_consistency = calculate_direction_consistency_improved(
+                test_route['assigned_users'],
+                (test_route['latitude'], test_route['longitude']),
+                (office_lat, office_lon)
+            )
+
+            # Quality thresholds for merging
+            MAX_TURNING_ANGLE = config.get('MAX_TURNING_ANGLE', 35)
+            MAX_TORTUOSITY = 1.3
+            MIN_DIRECTION_CONSISTENCY = 0.7
+
+            # Accept merge only if quality is acceptable
+            if (turning_score <= MAX_TURNING_ANGLE and 
+                tortuosity <= MAX_TORTUOSITY and 
+                direction_consistency >= MIN_DIRECTION_CONSISTENCY):
+
+                # Calculate combined quality score (lower is better)
+                quality_score = turning_score + (tortuosity - 1.0) * 20 + (1.0 - direction_consistency) * 50
+
+                if quality_score < best_merge_quality:
+                    best_merge_quality = quality_score
+                    best_merge = (j, test_route)
+
+        if best_merge is not None:
+            j, merged_route = best_merge
+            merged_routes.append(merged_route)
+            used.add(i)
+            used.add(j)
+            print(f"  ✅ Merged routes {r1['driver_id']} and {routes[j]['driver_id']} (quality: {best_merge_quality:.1f})")
+        else:
+            merged_routes.append(r1)
+            used.add(i)
+
+    print(f"  🔄 Final-pass merge: {len(routes)} → {len(merged_routes)} routes")
+    return merged_routes
+
+
+def calculate_combined_route_center(route1, route2):
+    """Calculate the center point of users from two routes combined"""
+    all_users = route1['assigned_users'] + route2['assigned_users']
+    if not all_users:
+        return (0, 0)
+
+    avg_lat = sum(u['lat'] for u in all_users) / len(all_users)
+    avg_lng = sum(u['lng'] for u in all_users) / len(all_users)
+    return (avg_lat, avg_lng)
 
 
 def fix_single_user_routes_improved(routes, user_df, assigned_user_ids, driver_df, office_lat, office_lon):
@@ -1995,20 +2121,34 @@ def calculate_merge_quality_score(route1, route2, office_lat, office_lon):
     all_users = route1['assigned_users'] + route2['assigned_users']
     
     # Choose better positioned driver
-    center1 = calculate_route_center_improved(route1)
-    center2 = calculate_route_center_improved(route2)
-    combined_center = calculate_users_center_improved(all_users)
+    combined_center = calculate_combined_route_center(route1, route2)
+    dist1 = haversine_distance(route1['latitude'], route1['longitude'], combined_center[0], combined_center[1])
+    dist2 = haversine_distance(route2['latitude'], route2['longitude'], combined_center[0], combined_center[1])
     
-    dist1 = haversine_distance(route1['latitude'], route1['longitude'], 
-                              combined_center[0], combined_center[1])
-    dist2 = haversine_distance(route2['latitude'], route2['longitude'], 
-                              combined_center[0], combined_center[1])
+    better_route = route1 if dist1 <= dist2 else route2
     
-    better_driver_pos = (route1['latitude'], route1['longitude']) if dist1 <= dist2 else (route2['latitude'], route2['longitude'])
+    # Create test merged route
+    test_route = better_route.copy()
+    test_route['assigned_users'] = all_users
+    test_route['vehicle_type'] = max(route1['vehicle_type'], route2['vehicle_type'])
     
     # Calculate quality metrics
-    turning_score = calculate_route_turning_score_improved(all_users, better_driver_pos, (office_lat, office_lon))
-    tortuosity = calculate_tortuosity_ratio_improved(all_users, better_driver_pos, (office_lat, office_lon))
+    turning_score = calculate_route_turning_score_improved(
+        test_route['assigned_users'], 
+        (test_route['latitude'], test_route['longitude']), 
+        (office_lat, office_lon)
+    )
+    tortuosity = calculate_tortuosity_ratio_improved(
+        test_route['assigned_users'], 
+        (test_route['latitude'], test_route['longitude']), 
+        (office_lat, office_lon)
+    )
+    
+    direction_consistency = calculate_direction_consistency_improved(
+        test_route['assigned_users'], 
+        (test_route['latitude'], test_route['longitude']), 
+        (office_lat, office_lon)
+    )
     
     # Combined quality score (lower is better)
     quality_score = turning_score + (tortuosity - 1.0) * 20  # Normalize tortuosity penalty
@@ -2020,7 +2160,7 @@ def perform_quality_merge_improved(route1, route2, office_lat, office_lon):
     """Perform merge with improved quality optimization"""
     # Choose better positioned driver
     all_users = route1['assigned_users'] + route2['assigned_users']
-    combined_center = calculate_users_center_improved(all_users)
+    combined_center = calculate_combined_route_center(route1, route2)
     
     dist1 = haversine_distance(route1['latitude'], route1['longitude'], 
                               combined_center[0], combined_center[1])
@@ -2270,7 +2410,7 @@ def try_reassign_outlier(outlier_user, routes, office_lat, office_lon):
         route_bearing = calculate_average_bearing_improved(route, office_lat, office_lon)
         
         distance = haversine_distance(route_center[0], route_center[1], outlier_pos[0], outlier_pos[1])
-        bearing_diff = bearing_difference(outlier_bearing, route_bearing)
+        bearing_diff = bearing_difference(route_bearing, outlier_bearing)
         
         if distance <= _config['MAX_FILL_DISTANCE_KM'] * 1.5 and bearing_diff <= 30:
             # Test quality impact
@@ -2717,23 +2857,34 @@ def run_assignment(source_id: str, parameter: int = 1, string_param: str = ""):
         routes, unassigned_users = global_optimization(routes, user_df,
                                                        assigned_user_ids, driver_df, office_lat, office_lon)
 
-        # Build unassigned drivers list
+        # STEP 6: Final-pass merge algorithm
+        routes = final_pass_merge(routes, _config, office_lat, office_lon)
+
+        # Filter out routes with no assigned users and move those drivers to unassigned
+        filtered_routes = []
+        empty_route_driver_ids = set()
+        
+        for route in routes:
+            if route['assigned_users'] and len(route['assigned_users']) > 0:
+                filtered_routes.append(route)
+            else:
+                empty_route_driver_ids.add(route['driver_id'])
+                print(f"  📋 Moving driver {route['driver_id']} with no users to unassigned drivers")
+        
+        routes = filtered_routes
+        
+        # Build unassigned drivers list (including drivers from empty routes)
         assigned_driver_ids = {route['driver_id'] for route in routes}
-        unassigned_drivers_df = driver_df[~driver_df['driver_id'].
-                                          isin(assigned_driver_ids)]
+        unassigned_drivers_df = driver_df[~driver_df['driver_id'].isin(assigned_driver_ids)]
         unassigned_drivers = []
+        
         for _, driver in unassigned_drivers_df.iterrows():
             driver_data = {
-                'driver_id':
-                str(driver.get('id', '')),
-                'capacity':
-                int(driver.get('capacity', 0)),
-                'vehicle_id':
-                str(driver.get('vehicle_id', '')),
-                'latitude':
-                float(driver.get('latitude', 0.0)),
-                'longitude':
-                float(driver.get('longitude', 0.0))
+                'driver_id': str(driver.get('driver_id', '')),
+                'capacity': int(driver.get('capacity', 0)),
+                'vehicle_id': str(driver.get('vehicle_id', '')),
+                'latitude': float(driver.get('latitude', 0.0)),
+                'longitude': float(driver.get('longitude', 0.0))
             }
             unassigned_drivers.append(driver_data)
 
