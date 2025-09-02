@@ -88,7 +88,7 @@ class RoadCorridorAnalyzer:
         self.road_network = road_network
         self.office_pos = office_pos
         office_node, office_dist = road_network.find_nearest_road_node(office_pos[0], office_pos[1])
-        if office_dist > 3.0:  # Office too far from road network
+        if office_dist > 10.0:  # Increased tolerance for office distance
             print(f"Warning: Office is {office_dist:.2f}km from nearest road node")
             self.office_node = None
         else:
@@ -250,9 +250,6 @@ class RoadCorridorAnalyzer:
                 driver_pos = (route['latitude'], route['longitude'])
                 route_users = route['assigned_users']
 
-                # Get optimization parameters from mode config
-                config = OPTIMIZATION_CONFIGS.get(mode, OPTIMIZATION_CONFIGS["balanced"])
-
                 # Determine route type for road network functions
                 route_type = "straight" if mode == "efficiency" else "balanced" if mode == "balanced" else "capacity"
 
@@ -297,7 +294,8 @@ class RoadCorridorAnalyzer:
                         haversine_distance(u['lat'], u['lng'], office_pos[0], office_pos[1]) 
                         for u in route_users
                     ])
-                    if user_office_distance > last_user_office_distance:
+                    # Strict check - no tolerance for backtracking
+                    if user_office_distance > last_user_office_distance + 0.1:  # 100m tolerance only
                         continue  # Skip users that force backtracking
 
                 # Check capacity - get capacity from route
@@ -311,8 +309,7 @@ class RoadCorridorAnalyzer:
                     'lat': float(user['latitude']),
                     'lng': float(user['longitude']),
                     'office_distance': haversine_distance(
-                        float(user['latitude']), float(user['longitude']), 
-                        office_pos[0], office_pos[1]
+                        float(user['latitude']), float(user['longitude']), office_pos[0], office_pos[1]
                     )
                 }
                 if user.get('first_name'):
@@ -418,7 +415,7 @@ class RoadCorridorAnalyzer:
             direct_dist = haversine_distance(driver_pos[0], driver_pos[1], office_pos[0], office_pos[1])
             if direct_dist > 0:
                 detour_ratio = total_route_dist / direct_dist
-                score -= detour_ratio * 5 # Penalize longer detours
+                score -= detour_ratio * 15 # Stronger penalty for detours
 
             # Add coherence score if available
             if self.road_network:
@@ -564,7 +561,53 @@ def assign_routes_road_aware(data):
         print("👥 Assigning users to road corridors...")
         corridor_analyzer.assign_users_to_corridors(users)
 
-        # Phase 3: Get corridor-based routes
+        # Phase 3: Apply road-aware clustering within corridors
+        print("🛣️ Applying road-aware clustering within corridors...")
+        for direction, corridor in corridor_analyzer.corridors.items():
+            if len(corridor['users']) > 2:  # Only cluster if enough users
+                try:
+                    from sklearn.cluster import DBSCAN
+                    import numpy as np
+
+                    # Create road distance matrix
+                    user_positions = [(u['lat'], u['lng']) for u in corridor['users']]
+                    n_users = len(user_positions)
+
+                    if n_users > 1:
+                        # Use road distances for clustering
+                        distance_matrix = np.zeros((n_users, n_users))
+                        for i in range(n_users):
+                            for j in range(i+1, n_users):
+                                road_dist = ROAD_NETWORK.get_road_distance(
+                                    user_positions[i][0], user_positions[i][1],
+                                    user_positions[j][0], user_positions[j][1]
+                                )
+                                distance_matrix[i][j] = road_dist
+                                distance_matrix[j][i] = road_dist
+
+                        # Apply DBSCAN with road distances
+                        clustering = DBSCAN(eps=2.0, min_samples=2, metric='precomputed')
+                        cluster_labels = clustering.fit_predict(distance_matrix)
+
+                        # Reorganize users by clusters
+                        clusters = {}
+                        for idx, label in enumerate(cluster_labels):
+                            if label not in clusters:
+                                clusters[label] = []
+                            clusters[label].append(corridor['users'][idx])
+
+                        # Update corridor with clustered users (keep largest cluster)
+                        if clusters:
+                            largest_cluster = max(clusters.values(), key=len)
+                            corridor['users'] = largest_cluster
+                            print(f"   📍 {direction}: Clustered to {len(largest_cluster)} users")
+
+                except ImportError:
+                    print(f"   📍 {direction}: sklearn not available, using geometric clustering")
+                except Exception as e:
+                    print(f"   📍 {direction}: Clustering failed ({e}), using original assignment")
+
+        # Phase 4: Get corridor-based routes
         corridor_routes = corridor_analyzer.get_corridor_routes()
         print(f"🛣️ Identified {len(corridor_routes)} corridors with users")
         for corridor in corridor_routes:
@@ -597,159 +640,44 @@ def assign_routes_road_aware(data):
     if ROAD_NETWORK:
         route_assigner.road_network = ROAD_NETWORK
 
-    # PHASE 1: Create routes based on corridor analysis
-    print("🚗 Creating routes along identified corridors...")
+    # PHASE 1: Create routes based on corridor analysis with sequential building
+    print("🚗 Creating routes along identified corridors with sequential user ordering...")
 
     # Sort drivers by capacity (larger capacity first for flexibility)
     sorted_drivers = sorted(all_drivers, key=lambda d: d['capacity'], reverse=True)
 
-    # Create routes for each corridor with users
+    # Create routes for each corridor with users using sequential building
     for corridor_route in corridor_routes:
-        corridor_users = corridor_route['users'].copy()  # Make a copy to avoid modification issues
+        corridor_users = corridor_route['users'].copy()
         if not corridor_users:
             continue
 
         print(f"  📍 Processing corridor {corridor_route['direction']} with {len(corridor_users)} users")
 
-        # Assign drivers to this corridor
-        corridor_assigned = False
+        # Sort users in corridor by office distance (furthest first for sequential pickup)
+        corridor_users.sort(key=lambda u: u.get('office_distance', 0), reverse=True)
+        print(f"    📏 Sorted users by office distance: {[f'{u['user_id']}({u.get('office_distance', 0):.1f}km)' for u in corridor_users]}")
 
-        # For each corridor, try to assign drivers until all users are assigned or no drivers left
-        corridor_iterations = 0
-        max_corridor_iterations = 100  # Increased limit for better coverage
+        # Build routes sequentially for this corridor
+        corridor_routes_built, remaining_users = build_corridor_routes_sequential(
+            corridor_users, sorted_drivers, corridor_route['direction'], 
+            used_driver_ids, office_pos, ROAD_NETWORK
+        )
 
-        while corridor_users and corridor_iterations < max_corridor_iterations:
-            corridor_iterations += 1
-            print(f"    📍 Corridor {corridor_route['direction']} iteration {corridor_iterations}, {len(corridor_users)} users remaining")
+        # Add successfully built routes
+        routes.extend(corridor_routes_built)
 
-            # Find next available driver
-            available_driver = None
-            for driver in sorted_drivers:
-                if driver is None:
-                    continue
+        # Update used drivers
+        for route in corridor_routes_built:
+            used_driver_ids.add(route['driver_id'])
 
-                driver_id = str(driver['id'])
-                if driver_id not in used_driver_ids:
-                    available_driver = driver
-                    break
+        print(f"    ✅ Built {len(corridor_routes_built)} routes for corridor {corridor_route['direction']}")
+        print(f"    📊 Assigned {len(corridor_users) - len(remaining_users)}/{len(corridor_users)} users")
 
-            if available_driver is None:
-                print(f"    ⚠️ No more drivers available for corridor {corridor_route['direction']}")
-                break
-
-            driver = available_driver
-            driver_id = str(driver['id'])
-
-            # Create route for this driver along the corridor
-            try:
-                current_route = {
-                    'driver_id': driver_id,
-                    'vehicle_id': str(driver.get('vehicle_id', '')),
-                    'vehicle_type': int(driver['capacity']),
-                    'latitude': float(driver['latitude']),
-                    'longitude': float(driver['longitude']),
-                    'assigned_users': [],
-                    'corridor_direction': corridor_route['direction']
-                }
-
-                # Try to fill this driver to capacity with users from this corridor
-                users_assigned_to_this_driver = 0
-                remaining_corridor_users = []
-
-                user_processing_count = 0
-
-                for user in corridor_users:
-                    user_processing_count += 1
-
-                    if user is None or users_assigned_to_this_driver >= driver['capacity']:
-                        if user is not None:
-                            remaining_corridor_users.append(user)
-                        continue
-
-                    try:
-                        user_assigned = False
-
-                        if ROAD_NETWORK and route_assigner and route_assigner.road_network:
-                            # Use more lenient road network validation
-                            driver_pos = (current_route['latitude'], current_route['longitude'])
-                            user_pos = (user['lat'], user['lng'])
-
-                            # Simplified validation to prevent hanging
-                            try:
-                                # Quick distance check first
-                                distance = haversine_distance(driver_pos[0], driver_pos[1], user_pos[0], user_pos[1])
-                                if distance > 15.0:  # Skip very distant users
-                                    remaining_corridor_users.append(user)
-                                    continue
-
-                                # Simple road validation without complex path checking
-                                current_route['assigned_users'].append(user)
-                                assigned_user_ids.add(user['user_id'])
-                                users_assigned_to_this_driver += 1
-                                user_assigned = True
-                            except Exception as road_error:
-                                # Fallback to simple assignment
-                                current_route['assigned_users'].append(user)
-                                assigned_user_ids.add(user['user_id'])
-                                users_assigned_to_this_driver += 1
-                                user_assigned = True
-                        else:
-                            # Simple assignment without road validation
-                            current_route['assigned_users'].append(user)
-                            assigned_user_ids.add(user['user_id'])
-                            users_assigned_to_this_driver += 1
-                            user_assigned = True
-
-                        if not user_assigned:
-                            remaining_corridor_users.append(user)
-
-                    except Exception as user_assign_error:
-                        print(f"    ⚠️ Error assigning user {user.get('user_id', 'unknown')}: {user_assign_error}")
-                        remaining_corridor_users.append(user)
-
-                # Update corridor_users for next iteration
-                corridor_users = remaining_corridor_users
-
-                # Only create route if users were assigned
-                if current_route['assigned_users']:
-                    try:
-                        # Optimize pickup sequence using road network if available
-                        if ROAD_NETWORK and route_assigner and route_assigner.road_network:
-                            driver_pos = (current_route['latitude'], current_route['longitude'])
-                            user_positions = [(u['lat'], u['lng']) for u in current_route['assigned_users']]
-
-                            optimal_sequence = ROAD_NETWORK.get_optimal_pickup_sequence(
-                                driver_pos, user_positions, office_pos
-                            )
-
-                            # Reorder users based on optimal sequence
-                            if optimal_sequence and len(optimal_sequence) == len(current_route['assigned_users']):
-                                reordered_users = [current_route['assigned_users'][i] for i in optimal_sequence]
-                                current_route['assigned_users'] = reordered_users
-                        else:
-                            # Simple ordering by distance to office
-                            current_route['assigned_users'].sort(key=lambda u: u.get('office_distance', 0))
-
-                        # Update route metrics
-                        update_route_metrics_improved(current_route, office_lat, office_lon)
-                        routes.append(current_route)
-
-                        print(f"    ✅ Created route for driver {driver_id} with {len(current_route['assigned_users'])} users")
-                    except Exception as route_finalize_error:
-                        print(f"    ⚠️ Error finalizing route for driver {driver_id}: {route_finalize_error}")
-
-            except Exception as route_create_error:
-                print(f"    ⚠️ Error creating route for driver {driver_id}: {route_create_error}")
-
-            # Only mark driver as used if they have any users assigned
-            if current_route['assigned_users']:
-                used_driver_ids.add(driver_id)
-            else:
-                # Driver didn't get any users, keep them available for other corridors
-                pass
-
-        if not corridor_assigned and corridor_users:
-            print(f"    ⚠️ Could not assign {len(corridor_users)} users from corridor {corridor_route['direction']}")
+        # Update assigned users tracking
+        for route in corridor_routes_built:
+            for user in route['assigned_users']:
+                assigned_user_ids.add(user['user_id'])
 
     # PHASE 2: Cross-corridor filling - try to fill existing routes with users from other corridors
     print("🔄 Phase 2: Cross-corridor route filling...")
@@ -776,8 +704,21 @@ def assign_routes_road_aware(data):
             user_pos = (float(user['latitude']), float(user['longitude']))
             distance_to_route = haversine_distance(route_center[0], route_center[1], user_pos[0], user_pos[1])
 
-            # More lenient distance constraint for cross-corridor filling
-            if distance_to_route <= 8.0:  # Allow up to 8km for capacity filling
+            # Tighter distance constraint for cross-corridor filling
+            if distance_to_route <= 3.0:  # Tighter constraint for compact routes
+                # Additional road-aware check
+                if ROAD_NETWORK:
+                    driver_pos = (route['latitude'], route['longitude'])
+                    existing_users = [(u['lat'], u['lng']) for u in route['assigned_users']]
+                    user_pos = (float(user['latitude']), float(user['longitude']))
+
+                    # Must pass road path check
+                    if not ROAD_NETWORK.is_user_on_route_path(
+                        driver_pos, existing_users, user_pos, office_pos,
+                        max_detour_ratio=1.2, route_type="balanced"
+                    ):
+                        continue  # Skip if not on road path
+
                 user_data = {
                     'user_id': str(user['id']),
                     'lat': float(user['latitude']),
@@ -811,6 +752,44 @@ def assign_routes_road_aware(data):
     if final_remaining_users and final_available_drivers:
         print(f"🔄 Assigning {len(final_remaining_users)} remaining users to {len(final_available_drivers)} available drivers...")
 
+        # Try to fill existing routes first with more lenient constraints
+        for user in final_remaining_users[:]:
+            user_assigned = False
+            for route in routes:
+                if len(route['assigned_users']) < route['vehicle_type']:
+                    user_pos = (float(user['latitude']), float(user['longitude']))
+                    driver_pos = (route['latitude'], route['longitude'])
+                    
+                    # Use simple distance check - very lenient for unassigned users
+                    distance = haversine_distance(driver_pos[0], driver_pos[1], user_pos[0], user_pos[1])
+                    
+                    if distance < 50.0:  # Very lenient 50km radius
+                        user_data = {
+                            'user_id': str(user['id']),
+                            'lat': float(user['latitude']),
+                            'lng': float(user['longitude']),
+                            'office_distance': haversine_distance(
+                                float(user['latitude']), float(user['longitude']),
+                                office_lat, office_lon
+                            )
+                        }
+                        if user.get('first_name'):
+                            user_data['first_name'] = str(user['first_name'])
+                        if user.get('email'):
+                            user_data['email'] = str(user['email'])
+
+                        route['assigned_users'].append(user_data)
+                        assigned_user_ids.add(str(user['id']))
+                        final_remaining_users.remove(user)
+                        user_assigned = True
+                        
+                        print(f"    ✅ LENIENT-assigned user {user['id']} to existing route {route['driver_id']}")
+                        break
+            
+            if user_assigned:
+                continue
+
+        # Create new routes for truly remaining users
         for user in final_remaining_users:
             if not final_available_drivers:
                 break
@@ -824,16 +803,12 @@ def assign_routes_road_aware(data):
                     user_pos = (float(user['latitude']), float(user['longitude']))
                     driver_pos = (float(driver['latitude']), float(driver['longitude']))
 
-                    if ROAD_NETWORK:
-                        distance = ROAD_NETWORK.get_road_distance(
-                            driver_pos[0], driver_pos[1], user_pos[0], user_pos[1]
-                        )
-                    else:
-                        distance = haversine_distance(
-                            driver_pos[0], driver_pos[1], user_pos[0], user_pos[1]
-                        )
+                    # Use simple distance check for remaining users
+                    distance = haversine_distance(
+                        driver_pos[0], driver_pos[1], user_pos[0], user_pos[1]
+                    )
 
-                    if distance < best_distance and distance < 15.0:  # Max 15km
+                    if distance < best_distance and distance < 100.0:  # Very lenient 100km
                         best_distance = distance
                         best_driver = driver
 
@@ -865,62 +840,26 @@ def assign_routes_road_aware(data):
                 update_route_metrics_improved(single_user_route, office_lat, office_lon)
                 routes.append(single_user_route)
                 used_driver_ids.add(str(best_driver['id']))
-                assigned_user_ids.add(str(user['id']))
 
                 # Remove this driver from available pool
                 final_available_drivers = [d for d in final_available_drivers if str(d['id']) != str(best_driver['id'])]
 
-                print(f"    ✅ Assigned remaining user {user['id']} to driver {best_driver['id']}")
+                print(f"    ✅ EMERGENCY-assigned user {user['id']} to driver {best_driver['id']} (distance: {best_distance:.1f}km)")
 
-    # PHASE 4: Comprehensive final assignment - assign ANY remaining users to ANY available drivers
-    final_remaining_users = [u for u in users if str(u['id']) not in assigned_user_ids]
-    final_available_drivers = [d for d in all_drivers if str(d['id']) not in used_driver_ids]
+    # PHASE 4: Global optimization pass
+    print("🔧 Starting advanced optimization phases...")
 
-    if final_remaining_users and final_available_drivers:
-        print(f"🔄 Phase 4: Final comprehensive assignment for {len(final_remaining_users)} users with {len(final_available_drivers)} drivers...")
+    # Phase 1: Merging underutilized routes
+    routes, used_driver_ids = merge_underutilized_routes(routes, all_drivers, office_pos, ROAD_NETWORK)
 
-        # Create routes for every remaining user, regardless of distance
-        for user in final_remaining_users:
-            if not final_available_drivers:
-                break
+    # Phase 2: Split high-detour routes
+    routes, used_driver_ids = split_high_detour_routes(routes, all_drivers, office_pos, ROAD_NETWORK)
 
-            # Use the first available driver
-            driver = final_available_drivers.pop(0)
+    # Phase 3: Local route optimization
+    routes = local_route_optimization(routes, [], office_pos, ROAD_NETWORK) # Pass empty unassigned_users as it's handled differently
 
-            user_data = {
-                'user_id': str(user['id']),
-                'lat': float(user['latitude']),
-                'lng': float(user['longitude']),
-                'office_distance': haversine_distance(
-                    float(user['latitude']), float(user['longitude']),
-                    office_lat, office_lon
-                )
-            }
-            if user.get('first_name'):
-                user_data['first_name'] = str(user['first_name'])
-            if user.get('email'):
-                user_data['email'] = str(user['email'])
-
-            final_route = {
-                'driver_id': str(driver['id']),
-                'vehicle_id': str(driver.get('vehicle_id', '')),
-                'vehicle_type': int(driver['capacity']),
-                'latitude': float(driver['latitude']),
-                'longitude': float(driver['longitude']),
-                'assigned_users': [user_data],
-                'corridor_direction': 'FINAL_ASSIGNMENT'
-            }
-
-            update_route_metrics_improved(final_route, office_lat, office_lon)
-            routes.append(final_route)
-            used_driver_ids.add(str(driver['id']))
-            assigned_user_ids.add(str(user['id']))
-
-            distance = haversine_distance(
-                float(user['latitude']), float(user['longitude']),
-                float(driver['latitude']), float(driver['longitude'])
-            )
-            print(f"    ✅ Final assignment: User {user['id']} → Driver {driver['id']} (distance: {distance:.1f}km)")
+    # Phase 4: Global optimization pass
+    routes = global_optimization_pass(routes, office_pos, ROAD_NETWORK)
 
     # COMPREHENSIVE FINAL ACCOUNTING
 
@@ -991,22 +930,6 @@ def assign_routes_road_aware(data):
         if len(unused_drivers) > 3:
             print(f"      ... and {len(unused_drivers)-3} more drivers")
 
-    # ADVANCED OPTIMIZATION PHASES
-    print("🔧 Starting advanced optimization phases...")
-    
-    # Phase 1: Merging underutilized routes
-    routes, used_driver_ids = merge_underutilized_routes(routes, all_drivers, office_pos, ROAD_NETWORK)
-    
-    # Phase 2: Split high-detour routes
-    routes, used_driver_ids = split_high_detour_routes(routes, all_drivers, office_pos, ROAD_NETWORK)
-    
-    # Phase 3: Local route optimization
-    routes = local_route_optimization(routes, unassigned_users, office_pos, ROAD_NETWORK)
-    
-    # Phase 4: Global optimization pass
-    routes = global_optimization_pass(routes, office_pos, ROAD_NETWORK)
-    
-    # Update final statistics
     total_assigned_users = sum(len(r['assigned_users']) for r in routes)
     total_capacity = sum(r['vehicle_type'] for r in routes)
     utilization = (total_assigned_users / total_capacity * 100) if total_capacity > 0 else 0
@@ -1190,11 +1113,11 @@ def assign_routes_fallback(data):
             # 3. Sequential Routing (No Backtracking)
             if current_route['assigned_users']:
                 user_office_distance = haversine_distance(
-                    float(user['latitude']), float(user['longitude']), office_lat, office_lon
+                    float(user['latitude']), float(user['longitude']), office_pos[0], office_pos[1]
                 )
                 # Find the minimum office distance among currently assigned users
                 last_user_office_distance = min([
-                    haversine_distance(u['lat'], u['lng'], office_lat, office_lon) 
+                    haversine_distance(u['lat'], u['lng'], office_pos[0], office_pos[1]) 
                     for u in current_route['assigned_users']
                 ])
                 if user_office_distance > last_user_office_distance:
@@ -1205,7 +1128,7 @@ def assign_routes_fallback(data):
                 'user_id': str(user['id']),
                 'lat': float(user['latitude']),
                 'lng': float(user['longitude']),
-                'office_distance': haversine_distance(float(user['latitude']), float(user['longitude']), office_lat, office_lon)
+                'office_distance': haversine_distance(float(user['latitude']), float(user['longitude']), office_pos[0], office_pos[1])
             }
             if user.get('first_name'):
                 user_data['first_name'] = str(user['first_name'])
@@ -1268,7 +1191,6 @@ def assign_routes_fallback(data):
 
                     # More relaxed constraints: up to 25km distance for distant users
                     if distance < 25.0 and distance < best_distance:
-                        best_distance = distance
                         best_route = route
 
             if best_route:
@@ -1421,53 +1343,53 @@ def run_road_aware_assignment(source_id: str, parameter: int = 1, string_param: 
 def merge_underutilized_routes(routes, all_drivers, office_pos, road_network):
     """Merge underutilized routes (especially 1-2 user routes) into nearby routes"""
     print("  🔗 Phase 1: Merging underutilized routes...")
-    
+
     merged_routes = []
     retired_driver_ids = set()
     merges_made = 0
-    
+
     # Sort routes by utilization (lowest first for merging)
-    routes_by_util = sorted(routes, key=lambda r: len(r['assigned_users']) / r['vehicle_type'])
-    
+    routes_by_util = sorted(routes, key=lambda r: r['vehicle_type'] / len(r['assigned_users']) if len(r['assigned_users']) > 0 else float('inf'))
+
     for i, route_a in enumerate(routes_by_util):
         if route_a['driver_id'] in retired_driver_ids:
             continue
-            
+
         # Target underutilized routes (≤2 users or <50% capacity)
-        utilization_a = len(route_a['assigned_users']) / route_a['vehicle_type']
+        utilization_a = len(route_a['assigned_users']) / route_a['vehicle_type'] if route_a['vehicle_type'] > 0 else 0
         if len(route_a['assigned_users']) > 2 and utilization_a > 0.5:
             merged_routes.append(route_a)
             continue
-            
+
         # Look for a suitable route to merge into
         best_merge_route = None
         best_merge_score = float('inf')
-        
+
         for j, route_b in enumerate(routes_by_util):
             if i == j or route_b['driver_id'] in retired_driver_ids:
                 continue
-                
+
             # Check if route_b has capacity
             available_capacity = route_b['vehicle_type'] - len(route_b['assigned_users'])
             if available_capacity < len(route_a['assigned_users']):
                 continue
-                
+
             # Check distance between route centers
             center_a = calculate_route_center(route_a)
             center_b = calculate_route_center(route_b)
             center_distance = haversine_distance(center_a[0], center_a[1], center_b[0], center_b[1])
-            
+
             if center_distance > 8.0:  # Max 8km between route centers
                 continue
-                
+
             # Test merge feasibility using road network
             merge_feasible = True
             total_detour = 0
-            
+
             for user in route_a['assigned_users']:
                 user_pos = (user['lat'], user['lng'])
                 driver_b_pos = (route_b['latitude'], route_b['longitude'])
-                
+
                 if road_network:
                     # Check if user lies along route B's corridor
                     existing_users_b = [(u['lat'], u['lng']) for u in route_b['assigned_users']]
@@ -1477,7 +1399,7 @@ def merge_underutilized_routes(routes, all_drivers, office_pos, road_network):
                     ):
                         merge_feasible = False
                         break
-                        
+
                     # Calculate detour
                     direct_dist = road_network.get_road_distance(driver_b_pos[0], driver_b_pos[1], office_pos[0], office_pos[1])
                     via_user_dist = (road_network.get_road_distance(driver_b_pos[0], driver_b_pos[1], user_pos[0], user_pos[1]) +
@@ -1491,81 +1413,81 @@ def merge_underutilized_routes(routes, all_drivers, office_pos, road_network):
                         merge_feasible = False
                         break
                     total_detour += distance
-                    
+
             if merge_feasible and total_detour < 6.0:  # Max 6km total detour
                 merge_score = center_distance + total_detour + (len(route_b['assigned_users']) * 0.5)
                 if merge_score < best_merge_score:
                     best_merge_score = merge_score
                     best_merge_route = route_b
-                    
+
         if best_merge_route:
             # Perform the merge
             for user in route_a['assigned_users']:
                 best_merge_route['assigned_users'].append(user)
-                
+
             # Re-optimize the merged route
             update_route_metrics_improved(best_merge_route, office_pos[0], office_pos[1])
             retired_driver_ids.add(route_a['driver_id'])
             merges_made += 1
-            
+
             print(f"    ✅ Merged route {route_a['driver_id']} ({len(route_a['assigned_users'])} users) into route {best_merge_route['driver_id']}")
         else:
             merged_routes.append(route_a)
-            
+
     # Add non-retired routes
     for route in routes_by_util:
         if route['driver_id'] not in retired_driver_ids and route not in merged_routes:
             merged_routes.append(route)
-            
+
     print(f"    🔗 Completed {merges_made} route merges, {len(routes)} → {len(merged_routes)} routes")
-    
+
     # Update used_driver_ids by removing retired drivers
     used_driver_ids = {r['driver_id'] for r in merged_routes}
-    
+
     return merged_routes, used_driver_ids
 
 
 def split_high_detour_routes(routes, all_drivers, office_pos, road_network):
     """Split routes with high detour ratios into more efficient sub-routes"""
     print("  ✂️ Phase 2: Splitting high-detour routes...")
-    
+
     optimized_routes = []
     used_driver_ids = {r['driver_id'] for r in routes}
     available_drivers = [d for d in all_drivers if str(d['id']) not in used_driver_ids]
     splits_made = 0
-    
+
     for route in routes:
         # Skip routes with ≤2 users (can't split effectively)
         if len(route['assigned_users']) <= 2:
             optimized_routes.append(route)
             continue
-            
+
         # Calculate detour ratio
         detour_ratio = calculate_route_detour_ratio(route, office_pos, road_network)
-        
+
         if detour_ratio > 1.4 and len(route['assigned_users']) >= 3 and available_drivers:
             print(f"    🔍 High detour route {route['driver_id']}: {detour_ratio:.2f} ratio, attempting split...")
-            
+
             # Cluster users into 2 groups using road network awareness
             split_routes = split_route_into_clusters(route, available_drivers, office_pos, road_network)
-            
+
             if len(split_routes) > 1:
                 # Successfully split
                 optimized_routes.extend(split_routes)
-                
+
                 # Update available drivers
                 for split_route in split_routes:
                     if split_route['driver_id'] != route['driver_id']:  # New driver used
                         available_drivers = [d for d in available_drivers if str(d['id']) != split_route['driver_id']]
                         used_driver_ids.add(split_route['driver_id'])
-                        
+
                 splits_made += 1
                 print(f"    ✅ Split route {route['driver_id']} into {len(split_routes)} routes")
             else:
                 optimized_routes.append(route)
         else:
             optimized_routes.append(route)
-            
+
     print(f"    ✂️ Completed {splits_made} route splits")
     return optimized_routes, used_driver_ids
 
@@ -1573,23 +1495,23 @@ def split_high_detour_routes(routes, all_drivers, office_pos, road_network):
 def local_route_optimization(routes, unassigned_users, office_pos, road_network):
     """Local optimization: improve each route individually"""
     print("  🔧 Phase 3: Local route optimization...")
-    
+
     improvements_made = 0
-    
+
     for route in routes:
         original_user_count = len(route['assigned_users'])
-        
+
         # Try adding nearby unassigned users
         available_capacity = route['vehicle_type'] - len(route['assigned_users'])
         if available_capacity > 0 and unassigned_users:
             driver_pos = (route['latitude'], route['longitude'])
-            
+
             for user in unassigned_users[:]:  # Copy list to avoid modification during iteration
                 if available_capacity <= 0:
                     break
-                    
+
                 user_pos = (user['lat'], user['lng'])
-                
+
                 # Check if user fits well in this route
                 if road_network:
                     existing_users = [(u['lat'], u['lng']) for u in route['assigned_users']]
@@ -1600,7 +1522,7 @@ def local_route_optimization(routes, unassigned_users, office_pos, road_network)
                         # Test route quality after adding user
                         test_route = route.copy()
                         test_route['assigned_users'] = route['assigned_users'] + [user]
-                        
+
                         test_detour = calculate_route_detour_ratio(test_route, office_pos, road_network)
                         if test_detour < 1.3:  # Acceptable detour
                             route['assigned_users'].append(user)
@@ -1616,24 +1538,24 @@ def local_route_optimization(routes, unassigned_users, office_pos, road_network)
                         unassigned_users.remove(user)
                         available_capacity -= 1
                         improvements_made += 1
-        
+
         # Re-optimize pickup sequence
         if road_network and len(route['assigned_users']) > 1:
             driver_pos = (route['latitude'], route['longitude'])
             user_positions = [(u['lat'], u['lng']) for u in route['assigned_users']]
             optimal_sequence = road_network.get_optimal_pickup_sequence(driver_pos, user_positions, office_pos)
-            
+
             if optimal_sequence and len(optimal_sequence) == len(route['assigned_users']):
                 reordered_users = [route['assigned_users'][i] for i in optimal_sequence]
                 route['assigned_users'] = reordered_users
-                
+
         # Update route metrics
         update_route_metrics_improved(route, office_pos[0], office_pos[1])
-        
+
         final_user_count = len(route['assigned_users'])
         if final_user_count > original_user_count:
             improvements_made += 1
-            
+
     print(f"    🔧 Local optimization: {improvements_made} improvements made")
     return routes
 
@@ -1641,72 +1563,75 @@ def local_route_optimization(routes, unassigned_users, office_pos, road_network)
 def global_optimization_pass(routes, office_pos, road_network):
     """Global optimization: try swapping users between routes for overall improvement"""
     print("  🌍 Phase 4: Global optimization pass...")
-    
+
+    # Phase 4.1: Road-aware route consolidation
+    routes = consolidate_same_road_users(routes, office_pos, road_network)
+
     max_iterations = 5
     swaps_made = 0
-    
+
     for iteration in range(max_iterations):
         iteration_swaps = 0
-        
+
         # Try swapping users between every pair of routes
         for i, route_a in enumerate(routes):
             for j, route_b in enumerate(routes):
                 if i >= j or not route_a['assigned_users'] or not route_b['assigned_users']:
                     continue
-                    
+
                 # Try moving one user from route_a to route_b
                 for user_idx, user in enumerate(route_a['assigned_users']):
                     # Check if route_b has capacity
                     if len(route_b['assigned_users']) >= route_b['vehicle_type']:
                         continue
-                        
+
                     # Calculate current total distance
                     current_total = (calculate_route_total_distance(route_a, office_pos, road_network) +
                                    calculate_route_total_distance(route_b, office_pos, road_network))
-                    
+
                     # Test the swap
                     test_route_a = route_a.copy()
                     test_route_b = route_b.copy()
                     test_route_a['assigned_users'] = [u for k, u in enumerate(route_a['assigned_users']) if k != user_idx]
                     test_route_b['assigned_users'] = route_b['assigned_users'] + [user]
-                    
+
                     # Skip if route_a becomes empty
                     if not test_route_a['assigned_users']:
                         continue
-                        
+
                     # Check if user fits in route_b's path
                     if road_network:
                         driver_b_pos = (route_b['latitude'], route_b['longitude'])
                         existing_users_b = [(u['lat'], u['lng']) for u in route_b['assigned_users']]
                         user_pos = (user['lat'], user['lng'])
-                        
+
                         if not road_network.is_user_on_route_path(
                             driver_b_pos, existing_users_b, user_pos, office_pos,
                             max_detour_ratio=1.25, route_type="balanced"
                         ):
                             continue
-                    
+
                     # Calculate new total distance
                     new_total = (calculate_route_total_distance(test_route_a, office_pos, road_network) +
                                calculate_route_total_distance(test_route_b, office_pos, road_network))
-                    
+
                     # Accept if improvement
                     if new_total < current_total - 0.5:  # At least 0.5km improvement
                         route_a['assigned_users'] = test_route_a['assigned_users']
                         route_b['assigned_users'] = test_route_b['assigned_users']
-                        
+
                         # Update route metrics
                         update_route_metrics_improved(route_a, office_pos[0], office_pos[1])
                         update_route_metrics_improved(route_b, office_pos[0], office_pos[1])
-                        
+
                         iteration_swaps += 1
                         swaps_made += 1
                         print(f"    🔄 Swapped user {user['user_id']} from route {route_a['driver_id']} to {route_b['driver_id']}")
                         break  # Only one swap per route pair per iteration
-                        
+
         if iteration_swaps == 0:
             break  # No improvements found, exit early
-            
+
     print(f"    🌍 Global optimization: {swaps_made} beneficial swaps made")
     return routes
 
@@ -1715,18 +1640,18 @@ def calculate_route_detour_ratio(route, office_pos, road_network):
     """Calculate the detour ratio for a route"""
     if not route['assigned_users']:
         return 1.0
-        
+
     driver_pos = (route['latitude'], route['longitude'])
-    
+
     # Calculate actual route distance
     actual_distance = calculate_route_total_distance(route, office_pos, road_network)
-    
+
     # Calculate direct distance (driver to office)
     if road_network:
         direct_distance = road_network.get_road_distance(driver_pos[0], driver_pos[1], office_pos[0], office_pos[1])
     else:
         direct_distance = haversine_distance(driver_pos[0], driver_pos[1], office_pos[0], office_pos[1])
-    
+
     return actual_distance / max(direct_distance, 0.1)
 
 
@@ -1734,10 +1659,10 @@ def calculate_route_total_distance(route, office_pos, road_network):
     """Calculate total distance for a route"""
     if not route['assigned_users']:
         return 0.0
-        
+
     total_distance = 0.0
     current_pos = (route['latitude'], route['longitude'])
-    
+
     # Distance through all users
     for user in route['assigned_users']:
         user_pos = (user['lat'], user['lng'])
@@ -1747,31 +1672,218 @@ def calculate_route_total_distance(route, office_pos, road_network):
             distance = haversine_distance(current_pos[0], current_pos[1], user_pos[0], user_pos[1])
         total_distance += distance
         current_pos = user_pos
-        
+
     # Distance from last user to office
     if road_network:
         final_distance = road_network.get_road_distance(current_pos[0], current_pos[1], office_pos[0], office_pos[1])
     else:
         final_distance = haversine_distance(current_pos[0], current_pos[1], office_pos[0], office_pos[1])
     total_distance += final_distance
-    
+
     return total_distance
+
+
+def consolidate_same_road_users(routes, office_pos, road_network):
+    """Consolidate users who are on the same road but in different routes"""
+    print("    🛣️ Phase 4.1: Consolidating users on same roads...")
+
+    if not road_network:
+        return routes
+
+    consolidations_made = 0
+    routes_to_remove = set()
+
+    # Build a map of users to their nearest road nodes
+    user_road_map = {}
+    for route_idx, route in enumerate(routes):
+        for user in route['assigned_users']:
+            user_pos = (user['lat'], user['lng'])
+            nearest_node, distance = road_network.find_nearest_road_node(user_pos[0], user_pos[1])
+            if nearest_node and distance < 1.0:  # Within 1km of road network
+                if nearest_node not in user_road_map:
+                    user_road_map[nearest_node] = []
+                user_road_map[nearest_node].append({
+                    'user': user,
+                    'route_idx': route_idx,
+                    'distance_to_road': distance
+                })
+
+    # Find road segments with users from multiple routes
+    for road_node, users_on_road in user_road_map.items():
+        if len(users_on_road) < 2:
+            continue
+
+        # Group users by their current routes
+        route_groups = {}
+        for user_info in users_on_road:
+            route_idx = user_info['route_idx']
+            if route_idx not in route_groups:
+                route_groups[route_idx] = []
+            route_groups[route_idx].append(user_info)
+
+        # Only proceed if users are from different routes
+        if len(route_groups) < 2:
+            continue
+
+        # Check if these users form a coherent path along the road
+        coherent_groups = find_coherent_road_groups(users_on_road, road_node, road_network, office_pos)
+
+        for coherent_group in coherent_groups:
+            if len(coherent_group) < 2:
+                continue
+
+            # Find the best route to consolidate into (highest capacity, best position)
+            route_candidates = {}
+            for user_info in coherent_group:
+                route_idx = user_info['route_idx']
+                route = routes[route_idx]
+                if route_idx not in route_candidates:
+                    available_capacity = route['vehicle_type'] - len(route['assigned_users'])
+                    route_candidates[route_idx] = {
+                        'route': route,
+                        'capacity': available_capacity,
+                        'users_to_move': []
+                    }
+                route_candidates[route_idx]['users_to_move'].append(user_info['user'])
+
+            # Find best target route (most capacity, closest to road segment)
+            best_target_route = None
+            best_score = -1
+
+            for route_idx, candidate in route_candidates.items():
+                # Calculate score: available capacity + proximity to road segment
+                route = candidate['route']
+                driver_pos = (route['latitude'], route['longitude'])
+                road_pos = road_network.node_positions.get(road_node)
+
+                if road_pos:
+                    proximity = 1.0 / (1.0 + haversine_distance(driver_pos[0], driver_pos[1], road_pos[0], road_pos[1]))
+                    score = candidate['capacity'] * 2 + proximity * 5
+
+                    # Check if this route can accommodate all users from other routes
+                    users_from_other_routes = []
+                    for other_idx, other_candidate in route_candidates.items():
+                        if other_idx != route_idx:
+                            users_from_other_routes.extend(other_candidate['users_to_move'])
+
+                    if len(users_from_other_routes) <= candidate['capacity'] and score > best_score:
+                        best_score = score
+                        best_target_route = route_idx
+
+            if best_target_route is not None:
+                target_route = routes[best_target_route]
+                users_moved = 0
+
+                # Move users from other routes to the target route
+                for route_idx, candidate in route_candidates.items():
+                    if route_idx == best_target_route:
+                        continue
+
+                    source_route = candidate['route']
+                    users_to_move = candidate['users_to_move']
+
+                    # Check road path compatibility before moving
+                    for user in users_to_move:
+                        user_pos = (user['lat'], user['lng'])
+                        driver_pos = (target_route['latitude'], target_route['longitude'])
+                        existing_users = [(u['lat'], u['lng']) for u in target_route['assigned_users']]
+
+                        # Verify user fits the target route's path
+                        if road_network.is_user_on_route_path(
+                            driver_pos, existing_users, user_pos, office_pos,
+                            max_detour_ratio=1.3, route_type="balanced"
+                        ):
+                            # Move user to target route
+                            target_route['assigned_users'].append(user)
+
+                            # Remove user from source route
+                            source_route['assigned_users'] = [
+                                u for u in source_route['assigned_users'] 
+                                if u['user_id'] != user['user_id']
+                            ]
+                            users_moved += 1
+
+                            print(f"    🛣️ Moved user {user['user_id']} from route {source_route['driver_id']} to {target_route['driver_id']} (same road)")
+
+                    # Mark empty routes for removal
+                    if not source_route['assigned_users']:
+                        routes_to_remove.add(route_idx)
+                        print(f"    🗑️ Route {source_route['driver_id']} emptied and marked for removal")
+
+                if users_moved > 0:
+                    # Re-optimize the target route sequence
+                    if road_network and len(target_route['assigned_users']) > 1:
+                        driver_pos = (target_route['latitude'], target_route['longitude'])
+                        user_positions = [(u['lat'], u['lng']) for u in target_route['assigned_users']]
+                        optimal_sequence = road_network.get_optimal_pickup_sequence(driver_pos, user_positions, office_pos)
+
+                        if optimal_sequence and len(optimal_sequence) == len(target_route['assigned_users']):
+                            reordered_users = [target_route['assigned_users'][i] for i in optimal_sequence]
+                            target_route['assigned_users'] = reordered_users
+
+                    # Update route metrics
+                    update_route_metrics_improved(target_route, office_pos[0], office_pos[1])
+                    consolidations_made += 1
+
+    # Remove empty routes
+    if routes_to_remove:
+        routes = [route for idx, route in enumerate(routes) if idx not in routes_to_remove]
+        print(f"    🗑️ Removed {len(routes_to_remove)} empty routes after consolidation")
+
+    print(f"    🛣️ Road consolidation: {consolidations_made} consolidations made")
+    return routes
+
+
+def find_coherent_road_groups(users_on_road, road_node, road_network, office_pos):
+    """Find groups of users that form coherent paths along the same road"""
+    if len(users_on_road) < 2:
+        return []
+
+    # Sort users by their distance to office (for sequential grouping)
+    users_sorted = sorted(users_on_road, key=lambda u: haversine_distance(u['user']['lat'], u['user']['lng'], office_pos[0], office_pos[1]))
+
+    coherent_groups = []
+    current_group = [users_sorted[0]]
+
+    for i in range(1, len(users_sorted)):
+        current_user = users_sorted[i]
+        last_user = current_group[-1]
+
+        # Check if users are close along the road (within 2km road distance)
+        road_distance = road_network.get_road_distance(
+            current_user['user']['lat'], current_user['user']['lng'],
+            last_user['user']['lat'], last_user['user']['lng']
+        )
+
+        if road_distance <= 2.0:  # Within 2km along the road
+            current_group.append(current_user)
+        else:
+            # Start new group if distance is too large
+            if len(current_group) >= 2:
+                coherent_groups.append(current_group)
+            current_group = [current_user]
+
+    # Don't forget the last group
+    if len(current_group) >= 2:
+        coherent_groups.append(current_group)
+
+    return coherent_groups
 
 
 def split_route_into_clusters(route, available_drivers, office_pos, road_network):
     """Split a route into 2 clusters using road network awareness"""
     if len(route['assigned_users']) < 3 or not available_drivers:
         return [route]
-        
+
     users = route['assigned_users']
     driver_pos = (route['latitude'], route['longitude'])
-    
+
     # Use DBSCAN clustering based on road distances
     if road_network:
         # Create distance matrix using road network
         n_users = len(users)
         distance_matrix = []
-        
+
         for i, user_a in enumerate(users):
             user_a_pos = (user_a['lat'], user_a['lng'])
             distances = []
@@ -1783,18 +1895,18 @@ def split_route_into_clusters(route, available_drivers, office_pos, road_network
                     dist = road_network.get_road_distance(user_a_pos[0], user_a_pos[1], user_b_pos[0], user_b_pos[1])
                     distances.append(dist)
             distance_matrix.append(distances)
-        
+
         # Simple clustering: split by distance from driver
         user_distances = []
         for user in users:
             user_pos = (user['lat'], user['lng'])
             dist = road_network.get_road_distance(driver_pos[0], driver_pos[1], user_pos[0], user_pos[1])
             user_distances.append((user, dist))
-        
+
         # Sort by distance and split roughly in half
         user_distances.sort(key=lambda x: x[1])
         mid_point = len(user_distances) // 2
-        
+
         cluster_1 = [item[0] for item in user_distances[:mid_point]]
         cluster_2 = [item[0] for item in user_distances[mid_point:]]
     else:
@@ -1802,11 +1914,11 @@ def split_route_into_clusters(route, available_drivers, office_pos, road_network
         mid_point = len(users) // 2
         cluster_1 = users[:mid_point]
         cluster_2 = users[mid_point:]
-    
+
     # Create route for cluster 1 (keep original driver)
     route_1 = route.copy()
     route_1['assigned_users'] = cluster_1
-    
+
     # Create route for cluster 2 (assign new driver)
     if available_drivers and cluster_2:
         # Find best driver for cluster 2
@@ -1814,10 +1926,10 @@ def split_route_into_clusters(route, available_drivers, office_pos, road_network
             sum(u['lat'] for u in cluster_2) / len(cluster_2),
             sum(u['lng'] for u in cluster_2) / len(cluster_2)
         )
-        
+
         best_driver = None
         best_distance = float('inf')
-        
+
         for driver in available_drivers:
             if driver['capacity'] >= len(cluster_2):
                 distance = haversine_distance(
@@ -1827,7 +1939,7 @@ def split_route_into_clusters(route, available_drivers, office_pos, road_network
                 if distance < best_distance:
                     best_distance = distance
                     best_driver = driver
-        
+
         if best_driver:
             route_2 = {
                 'driver_id': str(best_driver['id']),
@@ -1837,13 +1949,13 @@ def split_route_into_clusters(route, available_drivers, office_pos, road_network
                 'longitude': float(best_driver['longitude']),
                 'assigned_users': cluster_2
             }
-            
+
             # Update route metrics for both routes
             update_route_metrics_improved(route_1, office_pos[0], office_pos[1])
             update_route_metrics_improved(route_2, office_pos[0], office_pos[1])
-            
+
             return [route_1, route_2]
-    
+
     # If splitting failed, return original route
     return [route]
 
@@ -1895,3 +2007,153 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+def build_corridor_routes_sequential(corridor_users, available_drivers, corridor_direction, used_driver_ids, office_pos, road_network):
+    """
+    Build routes sequentially within a corridor, optimizing for road-aware sequential pickup
+    """
+    routes_built = []
+    remaining_users = corridor_users.copy()
+
+    print(f"    🛣️ Building sequential routes for {corridor_direction} corridor: {len(corridor_users)} users")
+
+    # Sort available drivers by proximity to corridor center and capacity
+    if corridor_users:
+        corridor_center_lat = sum(u['lat'] for u in corridor_users) / len(corridor_users)
+        corridor_center_lng = sum(u['lng'] for u in corridor_users) / len(corridor_users)
+
+        # Sort drivers by distance to corridor center
+        corridor_drivers = []
+        for driver in available_drivers:
+            if str(driver['id']) not in used_driver_ids:
+                driver_pos = (driver['latitude'], driver['longitude'])
+                distance = haversine_distance(driver_pos[0], driver_pos[1], corridor_center_lat, corridor_center_lng)
+                corridor_drivers.append((distance, driver))
+
+        corridor_drivers.sort(key=lambda x: x[0])  # Sort by distance
+    else:
+        corridor_drivers = [(0, driver) for driver in available_drivers if str(driver['id']) not in used_driver_ids]
+
+    route_count = 0
+
+    while remaining_users and corridor_drivers:
+        # Get next available driver
+        if not corridor_drivers:
+            break
+
+        _, driver = corridor_drivers.pop(0)
+
+        if str(driver['id']) in used_driver_ids:
+            continue
+
+        driver_pos = (driver['latitude'], driver['longitude'])
+        driver_capacity = driver['capacity']
+
+        print(f"      👤 Assigning driver {driver['id']} (capacity: {driver_capacity}) to corridor")
+
+        # Find best users for this driver using sequential road-aware logic
+        route_users = []
+
+        # Start with user closest to driver
+        if remaining_users:
+            closest_user = None
+            closest_distance = float('inf')
+
+            for user in remaining_users:
+                user_pos = (user['lat'], user['lng'])
+
+                if road_network:
+                    distance = road_network.get_road_distance(driver_pos[0], driver_pos[1], user_pos[0], user_pos[1])
+                else:
+                    distance = haversine_distance(driver_pos[0], driver_pos[1], user_pos[0], user_pos[1])
+
+                if distance < closest_distance:
+                    closest_distance = distance
+                    closest_user = user
+
+            if closest_user:
+                route_users.append(closest_user)
+                remaining_users.remove(closest_user)
+                print(f"        ✅ Added first user {closest_user['user_id']} (distance: {closest_distance:.1f}km)")
+
+        # Add sequential users up to capacity
+        current_pos = (route_users[0]['lat'], route_users[0]['lng']) if route_users else driver_pos
+
+        while len(route_users) < driver_capacity and remaining_users:
+            best_next_user = None
+            best_score = float('inf')
+
+            for user in remaining_users:
+                user_pos = (user['lat'], user['lng'])
+
+                # Calculate distance from current position
+                if road_network:
+                    distance = road_network.get_road_distance(current_pos[0], current_pos[1], user_pos[0], user_pos[1])
+                else:
+                    distance = haversine_distance(current_pos[0], current_pos[1], user_pos[0], user_pos[1])
+
+                # Check office distance progression (prefer closer to office)
+                user_office_distance = haversine_distance(user_pos[0], user_pos[1], office_pos[0], office_pos[1])
+                current_office_distance = haversine_distance(current_pos[0], current_pos[1], office_pos[0], office_pos[1])
+
+                # Bonus for moving toward office
+                progression_bonus = max(0, current_office_distance - user_office_distance) * 0.5
+
+                # Road path compatibility check
+                compatible = True
+                if road_network and route_users:
+                    existing_users = [(u['lat'], u['lng']) for u in route_users]
+                    compatible = road_network.is_user_on_route_path(
+                        driver_pos, existing_users, user_pos, office_pos, 
+                        max_detour_ratio=1.4, route_type="balanced"
+                    )
+
+                if compatible and distance <= 5.0:  # Max 5km between consecutive users
+                    score = distance - progression_bonus
+
+                    if score < best_score:
+                        best_score = score
+                        best_next_user = user
+
+            if best_next_user:
+                route_users.append(best_next_user)
+                remaining_users.remove(best_next_user)
+                current_pos = (best_next_user['lat'], best_next_user['lng'])
+                print(f"        ✅ Added user {best_next_user['user_id']} (score: {best_score:.1f})")
+            else:
+                print(f"        ⏹️ No more compatible users for driver {driver['id']}")
+                break
+
+    # Create route if users were assigned
+    if route_users:
+        route = {
+            'driver_id': str(driver['id']),
+            'vehicle_id': str(driver.get('vehicle_id', '')),
+            'vehicle_type': int(driver['capacity']),
+            'latitude': float(driver['latitude']),
+            'longitude': float(driver['longitude']),
+            'assigned_users': route_users
+        }
+
+        # Optimize sequence using road network if available
+        if road_network and len(route_users) > 1:
+            user_positions = [(u['lat'], u['lng']) for u in route_users]
+            optimal_sequence = road_network.get_optimal_pickup_sequence(driver_pos, user_positions, office_pos)
+
+            if optimal_sequence and len(optimal_sequence) == len(route_users):
+                reordered_users = [route_users[i] for i in optimal_sequence]
+                route['assigned_users'] = reordered_users
+
+        # Update route metrics
+        update_route_metrics_improved(route, office_pos[0], office_pos[1])
+        routes_built.append(route)
+        used_driver_ids.add(str(driver['id']))
+        route_count += 1
+
+        print(f"      ✅ Built route {route_count} with {len(route_users)} users for driver {driver['id']}")
+    else:
+        print(f"      ❌ No users assigned to driver {driver['id']}")
+
+    print(f"    📊 Sequential route building complete: {len(routes_built)} routes, {len(remaining_users)} users remaining")
+
+    return routes_built, remaining_users

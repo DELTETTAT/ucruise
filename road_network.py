@@ -363,13 +363,13 @@ class RoadNetwork:
             total_route_distance = driver_to_candidate + candidate_to_office
             detour_ratio = total_route_distance / max(driver_to_office, 0.1)
 
-            # Adjust thresholds based on route type (more lenient)
+            # Tighter thresholds for compact routes
             if route_type == "straight":
-                max_allowed_detour = min(max_detour_ratio, 1.2)  # Relaxed from 1.15
+                max_allowed_detour = 1.15  # Tighter
             elif route_type == "capacity":
-                max_allowed_detour = max(max_detour_ratio, 1.6)  # Relaxed from 1.5
+                max_allowed_detour = 1.3   # Tighter
             else:  # balanced
-                max_allowed_detour = max_detour_ratio * 1.1  # 10% more lenient
+                max_allowed_detour = 1.2   # Tighter
 
             # Primary detour check
             if detour_ratio <= max_allowed_detour:
@@ -408,7 +408,7 @@ class RoadNetwork:
             # More conservative fallback: check if candidate is within a reasonable distance
             # from the driver's position, as a last resort.
             straight_line_distance = self._calculate_distance(driver_pos[0], driver_pos[1], candidate_pos[0], candidate_pos[1])
-            return straight_line_distance <= 8.0  # Within 8km
+            return straight_line_distance <= 3.0  # Within 3km (tighter)
 
     def _point_to_line_distance(self, point: Tuple[float, float],
                                 line_start: Tuple[float, float],
