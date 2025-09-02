@@ -160,26 +160,30 @@ class RoadNetwork:
 
         print(f"✅ Edge weights set for {self.graph.number_of_edges()} edges")
 
-        # Build spatial index for fast nearest neighbor queries
-        try:
+        # Build spatial index for faster nearest node queries
+        # Compute a reference latitude for projection (mean of node latitudes)
+        mean_lat = None
+        if self.node_positions:
+            mean_lat = sum(lat for lat, lon in self.node_positions.values()) / len(self.node_positions)
+        else:
+            mean_lat = 0.0
+
+        lat_to_m = 111320.0
+        lon_scale = math.cos(math.radians(mean_lat)) * 111320.0
+
+        self._node_list = []
+        self._node_coords_m = []  # store in meters
+
+        for node_id, (lat, lon) in self.node_positions.items():
+            self._node_list.append(node_id)
+            # equirectangular projection: x = lon*lon_scale, y = lat*lat_to_m
+            self._node_coords_m.append((lon * lon_scale, lat * lat_to_m))
+
+        if self._node_coords_m:
             from scipy.spatial import cKDTree
-            self._node_list = []
-            self._node_coords = []
-
-            for node_id, (lat, lon) in self.node_positions.items():
-                self._node_list.append(node_id)
-                self._node_coords.append((lat, lon))
-
-            if self._node_coords:
-                self._kdtree = cKDTree(self._node_coords)
-                print(f"✅ Spatial index built with {len(self._node_coords)} nodes")
-            else:
-                self._kdtree = None
-        except ImportError:
-            print("⚠️ scipy not available, using linear search for nearest nodes")
-            self._kdtree = None
-        except Exception as e:
-            print(f"⚠️ Failed to build spatial index: {e}")
+            self._kdtree = cKDTree(self._node_coords_m)
+            print(f"✅ Spatial index (meters) built with {len(self._node_coords_m)} nodes")
+        else:
             self._kdtree = None
         
         print(f"✅ Network preparation complete")
@@ -199,30 +203,25 @@ class RoadNetwork:
         return R * c
 
     def find_nearest_road_node(self, lat, lon, max_search_km=2.0):
-        """Find the nearest road network node to a given position
-        Returns: (node_id, distance_km) or (None, float('inf')) if too far
-        """
-        if not hasattr(self, '_kdtree') or not self._kdtree or not self.node_positions:
-            print("⚠️ Spatial index (KDTree) unavailable — find_nearest_road_node will always return None")
+        """Find the nearest road network node to a given coordinate."""
+        if not getattr(self, "_kdtree", None):
             return None, float('inf')
 
-        # Query the KDTree for the nearest node
-        distance, idx = self._kdtree.query([lat, lon])
+        # project query into same metric space
+        mean_lat = sum(lat_ for lat_, lon_ in self.node_positions.values()) / len(self.node_positions)
+        lat_to_m = 111320.0
+        lon_scale = math.cos(math.radians(mean_lat)) * 111320.0
 
-        if idx < len(self._node_list):
-            node_id = self._node_list[idx]
-            # Approximate conversion from KDTree distance to km.
-            # This assumes KDTree uses Euclidean distance on lat/lon, which is a rough approximation.
-            # For more accuracy, one might need to transform coordinates or use a geographic KDTree.
-            distance_km = distance * 111.0  # Rough conversion to km (1 degree lat/lon approx 111km)
+        query_point_m = (lon * lon_scale, lat * lat_to_m)
+        distance_m, idx = self._kdtree.query(query_point_m)
+        node_id = self._node_list[idx]
+        distance_km = distance_m / 1000.0
 
-            if distance_km > max_search_km:
-                print(f"Warning: Nearest node {node_id} is {distance_km:.2f}km away (max: {max_search_km}km)")
-                return None, distance_km
+        if distance_km > max_search_km:
+            print(f"Warning: Nearest node {node_id} is {distance_km:.2f}km away (max: {max_search_km}km)")
+            return None, distance_km
 
-            return node_id, distance_km
-
-        return None, float('inf')
+        return node_id, distance_km
 
 
     def get_road_distance(self, lat1: float, lon1: float, lat2: float,
@@ -413,25 +412,30 @@ class RoadNetwork:
     def _point_to_line_distance(self, point: Tuple[float, float],
                                 line_start: Tuple[float, float],
                                 line_end: Tuple[float, float]) -> float:
-        """Calculate perpendicular distance from point to line segment in km"""
+        """Calculate perpendicular distance from point to line segment in km (fixed)."""
         import math
 
-        # Convert to approximate Cartesian coordinates for distance calculation
-        x0, y0 = point
-        x1, y1 = line_start
-        x2, y2 = line_end
+        # point, line_start, line_end are (lat, lon)
+        lat0, lon0 = point
+        lat1, lon1 = line_start
+        lat2, lon2 = line_end
 
-        # Convert lat/lng to meters (approximate)
-        lat_to_m = 111320.0  # meters per degree latitude
-        # Use average latitude for longitude conversion for better approximation
-        avg_lat = (y1 + y2) / 2.0 if line_start != line_end else y1
-        lng_to_m = 111320.0 * math.cos(math.radians(avg_lat))
+        # meters per degree of latitude (approx)
+        lat_to_m = 111320.0
 
-        x0_m, y0_m = x0 * lat_to_m, y0 * lng_to_m
-        x1_m, y1_m = x1 * lat_to_m, y1 * lng_to_m
-        x2_m, y2_m = x2 * lat_to_m, y2 * lng_to_m
+        # average latitude (in degrees) for longitude scaling
+        avg_lat = (lat1 + lat2) / 2.0 if (lat1, lon1) != (lat2, lon2) else lat1
+        lon_to_m = 111320.0 * math.cos(math.radians(avg_lat))
 
-        # Calculate perpendicular distance
+        # Convert to approximate Cartesian meters
+        x0_m = lat0 * lat_to_m
+        y0_m = lon0 * lon_to_m
+        x1_m = lat1 * lat_to_m
+        y1_m = lon1 * lon_to_m
+        x2_m = lat2 * lat_to_m
+        y2_m = lon2 * lon_to_m
+
+        # Vector from line_start to point and line vector
         A = x0_m - x1_m
         B = y0_m - y1_m
         C = x2_m - x1_m
@@ -441,25 +445,22 @@ class RoadNetwork:
         len_sq = C * C + D * D
 
         if len_sq == 0:
-            # Line start and end are the same point
-            return math.sqrt(A * A + B * B) / 1000.0  # Convert to km
+            # line_start and line_end are same point
+            return math.sqrt(A * A + B * B) / 1000.0
 
         param = dot / len_sq
 
         if param < 0:
-            # Closest point is line_start
             xx, yy = x1_m, y1_m
         elif param > 1:
-            # Closest point is line_end
             xx, yy = x2_m, y2_m
         else:
-            # Closest point is projection on the line segment
             xx = x1_m + param * C
             yy = y1_m + param * D
 
         dx = x0_m - xx
         dy = y0_m - yy
-        return math.sqrt(dx * dx + dy * dy) / 1000.0  # Convert to km
+        return math.sqrt(dx * dx + dy * dy) / 1000.0  # return km
 
     def _calculate_bearing(self, lat1: float, lon1: float, lat2: float,
                            lon2: float) -> float:

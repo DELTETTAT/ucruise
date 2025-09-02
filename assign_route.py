@@ -249,47 +249,92 @@ class RoadCorridorAnalyzer:
 
                 driver_pos = (route['latitude'], route['longitude'])
                 route_users = route['assigned_users']
+                user_pos = (float(user['latitude']), float(user['longitude']))
+
+                # ENHANCED DISTANCE CONSTRAINTS - Prevent scattered routes
+                # 1. Maximum distance from driver to user
+                driver_to_user_distance = haversine_distance(driver_pos[0], driver_pos[1], user_pos[0], user_pos[1])
+                MAX_DRIVER_USER_DISTANCE = 8.0  # Tighter constraint
+                if driver_to_user_distance > MAX_DRIVER_USER_DISTANCE:
+                    continue
+
+                # 2. Maximum distance between any two users in the route
+                if route_users:
+                    max_user_to_user_distance = 0.0
+                    for existing_user in route_users:
+                        existing_pos = (existing_user['lat'], existing_user['lng'])
+                        distance = haversine_distance(user_pos[0], user_pos[1], existing_pos[0], existing_pos[1])
+                        max_user_to_user_distance = max(max_user_to_user_distance, distance)
+                    
+                    MAX_USER_USER_DISTANCE = 6.0  # Users shouldn't be more than 6km apart
+                    if max_user_to_user_distance > MAX_USER_USER_DISTANCE:
+                        continue
+
+                # 3. DIRECTIONAL COHERENCE CHECK - Prevent zigzag routes
+                if route_users and self.road_network:
+                    # Calculate main direction from driver to office
+                    main_bearing = self.road_network._calculate_bearing(driver_pos[0], driver_pos[1], office_pos[0], office_pos[1])
+                    
+                    # Check if adding this user maintains directional coherence
+                    user_bearing = self.road_network._calculate_bearing(driver_pos[0], driver_pos[1], user_pos[0], user_pos[1])
+                    bearing_difference = abs(self.road_network._normalize_bearing_difference(user_bearing - main_bearing))
+                    
+                    MAX_BEARING_DEVIATION = 45.0  # Allow maximum 45° deviation from main direction
+                    if bearing_difference > MAX_BEARING_DEVIATION:
+                        print(f"    ✖ user {user['id']} rejected: bearing deviation {bearing_difference:.1f}° > {MAX_BEARING_DEVIATION}°")
+                        continue
+
+                # 4. ROUTE COMPACTNESS CHECK - Ensure route doesn't become too spread out
+                if route_users:
+                    # Calculate route bounding box diagonal
+                    all_lats = [u['lat'] for u in route_users] + [user_pos[0]]
+                    all_lngs = [u['lng'] for u in route_users] + [user_pos[1]]
+                    
+                    lat_range = max(all_lats) - min(all_lats)
+                    lng_range = max(all_lngs) - min(all_lngs)
+                    
+                    # Convert to approximate distance
+                    lat_distance = lat_range * 111.0  # 1° lat ≈ 111km
+                    lng_distance = lng_range * 111.0 * math.cos(math.radians(sum(all_lats) / len(all_lats)))
+                    diagonal_distance = math.sqrt(lat_distance**2 + lng_distance**2)
+                    
+                    MAX_ROUTE_DIAGONAL = 12.0  # Route shouldn't span more than 12km diagonal
+                    if diagonal_distance > MAX_ROUTE_DIAGONAL:
+                        print(f"    ✖ user {user['id']} rejected: route diagonal {diagonal_distance:.1f}km > {MAX_ROUTE_DIAGONAL}km")
+                        continue
 
                 # Determine route type for road network functions
                 route_type = "straight" if mode == "efficiency" else "balanced" if mode == "balanced" else "capacity"
 
                 # Check if user is on route path with road network awareness
                 config = OPTIMIZATION_CONFIGS.get(mode, OPTIMIZATION_CONFIGS["balanced"])
-                max_detour = config.get('max_detour_ratio', 1.25)
+                max_detour = config.get('max_detour_ratio', 1.2)  # Tighter detour ratio
 
-                # Combined coherence and path check - use softer filtering with scoring
+                # Enhanced coherence and path check
                 if self.road_network:
-                    test_users = [(u['lat'], u['lng']) for u in route_users] + [(float(user['latitude']), float(user['longitude']))]
+                    test_users = [(u['lat'], u['lng']) for u in route_users] + [user_pos]
                     coherence = self.road_network.get_route_coherence_score(
                         driver_pos, test_users, office_pos
                     )
 
+                    # Stricter coherence threshold
+                    if coherence < 0.6:  # Increased from 0.4
+                        print(f"    ✖ user {user['id']} rejected: low coherence {coherence:.2f}")
+                        continue
+
                     # Check if user is on route path
                     on_path = self.road_network.is_user_on_route_path(
                         driver_pos, [(u['lat'], u['lng']) for u in route_users],
-                        (float(user['latitude']), float(user['longitude'])),
-                        office_pos, max_detour_ratio=max_detour, route_type=route_type
+                        user_pos, office_pos, max_detour_ratio=max_detour, route_type=route_type
                     )
 
-                    # Soft combined scoring instead of strict AND/OR
-                    # Use combined score: 50% coherence, 30% path alignment, 20% proximity
-                    user_pos = (float(user['latitude']), float(user['longitude']))
-                    distance_to_route = haversine_distance(driver_pos[0], driver_pos[1], user_pos[0], user_pos[1])
-                    proximity_score = max(0, 1 - (distance_to_route / 10.0))  # Normalize to 0-1
-
-                    combined_score = (coherence * 0.5 + 
-                                    (1.0 if on_path else 0.0) * 0.3 + 
-                                    proximity_score * 0.2)
-
-                    # Accept if combined score is reasonable (relaxed threshold)
-                    if combined_score < 0.4:
+                    if not on_path:
+                        print(f"    ✖ user {user['id']} not on route path for route {route['driver_id']}")
                         continue
 
                 # Sequential routing - no backtracking toward office
                 if route_users:
-                    user_office_distance = haversine_distance(
-                        float(user['latitude']), float(user['longitude']), office_pos[0], office_pos[1]
-                    )
+                    user_office_distance = haversine_distance(user_pos[0], user_pos[1], office_pos[0], office_pos[1])
                     last_user_office_distance = min([
                         haversine_distance(u['lat'], u['lng'], office_pos[0], office_pos[1]) 
                         for u in route_users
@@ -400,29 +445,93 @@ class RoadCorridorAnalyzer:
 
 
     def calculate_route_score(self, route, driver_pos, office_pos, optimized_sequence):
-        """Calculates a score for a given route."""
-        # Example scoring: prioritize routes with more users, shorter total distance, better coherence
+        """Calculates a score for a given route with heavy penalty for scattered routes."""
         score = 0
         num_users = len(route['assigned_users'])
+        
+        if not route['assigned_users']:
+            return score
+
+        # Base score for number of users
         score += num_users * 10
 
-        # Add a penalty for deviation from a direct path to the office
+        # Calculate route metrics
         total_route_dist = 0
         if optimized_sequence:
             path = [driver_pos] + [(route['assigned_users'][i]['lat'], route['assigned_users'][i]['lng']) for i in optimized_sequence]
+            
+            # Calculate total route distance
             for i in range(len(path) - 1):
                 total_route_dist += haversine_distance(path[i][0], path[i][1], path[i+1][0], path[i+1][1])
 
+            # Add final leg to office
+            if path:
+                total_route_dist += haversine_distance(path[-1][0], path[-1][1], office_pos[0], office_pos[1])
+
             direct_dist = haversine_distance(driver_pos[0], driver_pos[1], office_pos[0], office_pos[1])
+            
             if direct_dist > 0:
                 detour_ratio = total_route_dist / direct_dist
-                score -= detour_ratio * 15 # Stronger penalty for detours
+                # Heavy penalty for high detour ratios (scattered routes)
+                if detour_ratio > 2.0:
+                    score -= detour_ratio * 50  # Severe penalty for very scattered routes
+                elif detour_ratio > 1.5:
+                    score -= detour_ratio * 30  # Strong penalty for scattered routes
+                else:
+                    score -= detour_ratio * 15  # Normal penalty
+
+            # COMPACTNESS PENALTY - penalize routes that are geographically spread out
+            if len(route['assigned_users']) > 1:
+                all_lats = [u['lat'] for u in route['assigned_users']]
+                all_lngs = [u['lng'] for u in route['assigned_users']]
+                
+                lat_range = max(all_lats) - min(all_lats)
+                lng_range = max(all_lngs) - min(all_lngs)
+                
+                # Convert to approximate distance
+                lat_distance = lat_range * 111.0  # 1° lat ≈ 111km
+                avg_lat = sum(all_lats) / len(all_lats)
+                lng_distance = lng_range * 111.0 * math.cos(math.radians(avg_lat))
+                
+                route_spread = math.sqrt(lat_distance**2 + lng_distance**2)
+                
+                # Heavy penalty for spread-out routes
+                if route_spread > 8.0:
+                    score -= route_spread * 10  # Heavy penalty for very spread routes
+                elif route_spread > 5.0:
+                    score -= route_spread * 5   # Moderate penalty
+
+            # DIRECTIONAL CONSISTENCY BONUS/PENALTY
+            if len(route['assigned_users']) > 1 and self.road_network:
+                main_bearing = self.road_network._calculate_bearing(driver_pos[0], driver_pos[1], office_pos[0], office_pos[1])
+                
+                bearing_deviations = []
+                for user in route['assigned_users']:
+                    user_bearing = self.road_network._calculate_bearing(driver_pos[0], driver_pos[1], user['lat'], user['lng'])
+                    deviation = abs(self.road_network._normalize_bearing_difference(user_bearing - main_bearing))
+                    bearing_deviations.append(deviation)
+                
+                avg_deviation = sum(bearing_deviations) / len(bearing_deviations)
+                
+                # Bonus for good directional consistency
+                if avg_deviation < 30:
+                    score += 15  # Good directional consistency
+                elif avg_deviation > 60:
+                    score -= 25  # Poor directional consistency
 
             # Add coherence score if available
             if self.road_network:
                 user_positions = [(u['lat'], u['lng']) for u in route['assigned_users']]
                 coherence = self.road_network.get_route_coherence_score(driver_pos, user_positions, office_pos)
-                score += coherence * 5
+                score += coherence * 15  # Increased weight for coherence
+
+            # EFFICIENCY BONUS - prefer routes with good distance efficiency
+            if num_users > 1:
+                avg_distance_per_user = total_route_dist / num_users
+                if avg_distance_per_user < 5.0:  # Very efficient
+                    score += 10
+                elif avg_distance_per_user > 15.0:  # Very inefficient
+                    score -= 20
 
         return score
 
@@ -930,19 +1039,22 @@ def assign_routes_road_aware(data):
 
     # PHASE 4: Global optimization pass
     print("🔧 Starting advanced optimization phases...")
-    
+
     # Phase 1: Merging underutilized routes
     routes, used_driver_ids = merge_underutilized_routes(routes, all_drivers, office_pos, ROAD_NETWORK)
-    
+
     # Phase 2: Split high-detour routes
     routes, used_driver_ids = split_high_detour_routes(routes, all_drivers, office_pos, ROAD_NETWORK)
-    
-    # Phase 3: Local route optimization
+
+    # Phase 3: Post-assignment geographic consolidation
+    routes, used_driver_ids = post_assignment_geographic_consolidation(routes, all_drivers, office_pos, ROAD_NETWORK)
+
+    # Phase 4: Local route optimization
     routes = local_route_optimization(routes, [], office_pos, ROAD_NETWORK) # Pass empty unassigned_users as it's handled differently
-    
-    # Phase 4: Global optimization pass
+
+    # Phase 5: Global optimization pass
     routes = global_optimization_pass(routes, office_pos, ROAD_NETWORK)
-    
+
     # COMPREHENSIVE FINAL ACCOUNTING
 
     unassigned_users = []
@@ -1423,153 +1535,202 @@ def run_road_aware_assignment(source_id: str, parameter: int = 1, string_param: 
 
 
 def merge_underutilized_routes(routes, all_drivers, office_pos, road_network):
-    """Merge underutilized routes (especially 1-2 user routes) into nearby routes"""
-    print("  🔗 Phase 1: Merging underutilized routes...")
-    
+    """Merge underutilized routes (especially 1-2 user routes) into nearby routes.
+    Relaxed thresholds and corridor-preferring logic to avoid many small parallel routes.
+    """
+    print("  🔗 Phase 1: Merging underutilized routes (relaxed thresholds).")
+
     merged_routes = []
     retired_driver_ids = set()
     merges_made = 0
-    
+
     # Sort routes by utilization (lowest first for merging)
-    routes_by_util = sorted(routes, key=lambda r: len(r['assigned_users']) / r['vehicle_type'])
-    
+    routes_by_util = sorted(routes, key=lambda r: len(r.get('assigned_users', [])) / max(1, r.get('vehicle_type', 1)))
+
+    # Parameters (tweak these if you still see over-splitting)
+    MAX_CENTER_DIST_KM = 12.0         # relaxed from 8.0
+    MAX_DETOUR_PER_USER_KM = 6.0      # allow ~6km detour per merged user (total scaled)
+    PATH_CHECK_MAX_DETOUR = 1.4       # allow slightly looser detour ratio for is_user_on_route_path
+
     for i, route_a in enumerate(routes_by_util):
         if route_a['driver_id'] in retired_driver_ids:
             continue
-            
-        # Target underutilized routes (≤2 users or <50% capacity)
-        utilization_a = len(route_a['assigned_users']) / route_a['vehicle_type']
-        if len(route_a['assigned_users']) > 2 and utilization_a > 0.5:
+
+        # Target underutilized routes: <=2 users or <50% capacity (same logic as before)
+        utilization_a = len(route_a.get('assigned_users', [])) / max(1, route_a.get('vehicle_type', 1))
+        if len(route_a.get('assigned_users', [])) > 2 and utilization_a > 0.5:
             merged_routes.append(route_a)
             continue
-            
+
         # Look for a suitable route to merge into
         best_merge_route = None
         best_merge_score = float('inf')
-        
+
         for j, route_b in enumerate(routes_by_util):
             if i == j or route_b['driver_id'] in retired_driver_ids:
                 continue
-                
-            # Check if route_b has capacity
-            available_capacity = route_b['vehicle_type'] - len(route_b['assigned_users'])
-            if available_capacity < len(route_a['assigned_users']):
+
+            # Check capacity
+            available_capacity = route_b.get('vehicle_type', 1) - len(route_b.get('assigned_users', []))
+            if available_capacity < len(route_a.get('assigned_users', [])):
+                # Not enough capacity
+                # debug:
+                # print(f"Skip {route_b['driver_id']} — not enough capacity")
                 continue
-                
-            # Check distance between route centers
+
+            # Distance between centers
             center_a = calculate_route_center(route_a)
             center_b = calculate_route_center(route_b)
             center_distance = haversine_distance(center_a[0], center_a[1], center_b[0], center_b[1])
-            
-            if center_distance > 8.0:  # Max 8km between route centers
+            if center_distance > MAX_CENTER_DIST_KM:
+                # too far apart
+                # debug:
+                # print(f"Skip {route_b['driver_id']} — center_distance {center_distance:.2f}km > {MAX_CENTER_DIST_KM}")
                 continue
-                
-            # Test merge feasibility using road network
+
+            # Test merge feasibility
             merge_feasible = True
-            total_detour = 0
-            
-            for user in route_a['assigned_users']:
+            total_detour = 0.0
+            for user in route_a.get('assigned_users', []):
                 user_pos = (user['lat'], user['lng'])
                 driver_b_pos = (route_b['latitude'], route_b['longitude'])
-                
+
                 if road_network:
-                    # Check if user lies along route B's corridor
-                    existing_users_b = [(u['lat'], u['lng']) for u in route_b['assigned_users']]
-                    if not road_network.is_user_on_route_path(
-                        driver_b_pos, existing_users_b, user_pos, office_pos, 
-                        max_detour_ratio=1.3, route_type="balanced"
-                    ):
-                        merge_feasible = False
-                        break
-                        
-                    # Calculate detour
+                    # Looser path check: allow PATH_CHECK_MAX_DETOUR ratio
+                    existing_users_b = [(u['lat'], u['lng']) for u in route_b.get('assigned_users', [])]
+                    try:
+                        ok = road_network.is_user_on_route_path(
+                            driver_b_pos, existing_users_b, user_pos, office_pos,
+                            max_detour_ratio=PATH_CHECK_MAX_DETOUR, route_type="balanced"
+                        )
+                    except Exception as e:
+                        ok = False
+
+                    # Fallback: if path check fails but users are geographically very close, allow merge
+                    if not ok:
+                        user_to_user_distance = min([
+                            haversine_distance(user_pos[0], user_pos[1], existing_user[0], existing_user[1])
+                            for existing_user in existing_users_b
+                        ]) if existing_users_b else float('inf')
+
+                        # If users are within 2km of each other, override path check
+                        if user_to_user_distance <= 2.0:
+                            print(f"    🔄 Override: user {user['user_id']} close to existing users ({user_to_user_distance:.2f}km), allowing merge")
+                            ok = True
+                        else:
+                            # Debug print for merge failures
+                            print(f"    ✖ user {user['user_id']} not on route path for candidate merge into {route_b['driver_id']}")
+                            # Log distances for debugging
+                            d1 = road_network.get_road_distance(driver_b_pos[0], driver_b_pos[1], user_pos[0], user_pos[1])
+                            d2 = road_network.get_road_distance(user_pos[0], user_pos[1], office_pos[0], office_pos[1])
+                            direct = road_network.get_road_distance(driver_b_pos[0], driver_b_pos[1], office_pos[0], office_pos[1])
+                            print(f"      detour if added = {d1 + d2:.2f} km vs direct {direct:.2f} km")
+                            merge_feasible = False
+                            break
+
+                    # Compute detour in road-distance terms and accumulate
                     direct_dist = road_network.get_road_distance(driver_b_pos[0], driver_b_pos[1], office_pos[0], office_pos[1])
                     via_user_dist = (road_network.get_road_distance(driver_b_pos[0], driver_b_pos[1], user_pos[0], user_pos[1]) +
-                                   road_network.get_road_distance(user_pos[0], user_pos[1], office_pos[0], office_pos[1]))
-                    detour = via_user_dist - direct_dist
+                                     road_network.get_road_distance(user_pos[0], user_pos[1], office_pos[0], office_pos[1]))
+                    detour = max(0.0, via_user_dist - direct_dist)
                     total_detour += detour
                 else:
-                    # Fallback to simple distance check
+                    # fallback: straight-line check but scaled a bit
                     distance = haversine_distance(driver_b_pos[0], driver_b_pos[1], user_pos[0], user_pos[1])
-                    if distance > 5.0:
+                    if distance > (MAX_DETOUR_PER_USER_KM * 1.5):  # looser fallback
                         merge_feasible = False
                         break
                     total_detour += distance
-                    
-            if merge_feasible and total_detour < 6.0:  # Max 6km total detour
-                merge_score = center_distance + total_detour + (len(route_b['assigned_users']) * 0.5)
-                if merge_score < best_merge_score:
-                    best_merge_score = merge_score
-                    best_merge_route = route_b
-                    
+
+            # Acceptable total detour threshold scales with number of users being merged
+            allowed_total_detour = max(MAX_DETOUR_PER_USER_KM, MAX_DETOUR_PER_USER_KM * len(route_a.get('assigned_users', [])))
+
+            # Debug info (very useful to keep while testing)
+            print(f"    → Trying merge {route_a['driver_id']} -> {route_b['driver_id']}: center_dist={center_distance:.2f} km, total_detour={total_detour:.2f} km, allowed={allowed_total_detour:.2f} km, path_ok={merge_feasible}")
+
+            if not merge_feasible or total_detour > allowed_total_detour:
+                # skip candidate
+                continue
+
+            # cost-based score (prefer close centers, low detour, and prefer same corridor)
+            merge_score = center_distance + total_detour + (len(route_b.get('assigned_users', [])) * 0.5)
+
+            # Prefer merging routes in same corridor if available
+            if route_a.get('corridor_direction') and route_b.get('corridor_direction') and route_a.get('corridor_direction') == route_b.get('corridor_direction'):
+                merge_score -= 2.0  # bonus to prefer same-corridor merges
+
+            if merge_score < best_merge_score:
+                best_merge_score = merge_score
+                best_merge_route = route_b
+
+        # perform the merge
         if best_merge_route:
-            # Perform the merge
-            for user in route_a['assigned_users']:
-                best_merge_route['assigned_users'].append(user)
-                
-            # Re-optimize the merged route
+            for user in route_a.get('assigned_users', []):
+                best_merge_route.setdefault('assigned_users', []).append(user)
+
+            # Re-optimize the merged route metrics
             update_route_metrics_improved(best_merge_route, office_pos[0], office_pos[1])
             retired_driver_ids.add(route_a['driver_id'])
             merges_made += 1
-            
-            print(f"    ✅ Merged route {route_a['driver_id']} ({len(route_a['assigned_users'])} users) into route {best_merge_route['driver_id']}")
+            print(f"    ✅ Merged route {route_a['driver_id']} ({len(route_a.get('assigned_users', []))} users) into route {best_merge_route['driver_id']}")
         else:
             merged_routes.append(route_a)
-            
-    # Add non-retired routes
+
+    # Add non-retired routes (make sure we include all remaining routes)
     for route in routes_by_util:
         if route['driver_id'] not in retired_driver_ids and route not in merged_routes:
             merged_routes.append(route)
-            
+
     print(f"    🔗 Completed {merges_made} route merges, {len(routes)} → {len(merged_routes)} routes")
-    
-    # Update used_driver_ids by removing retired drivers
-    used_driver_ids = {r['driver_id'] for r in merged_routes}
-    
+
+    # Build used_driver_ids from final merged routes (strings)
+    used_driver_ids = {str(r['driver_id']) for r in merged_routes}
+
     return merged_routes, used_driver_ids
+
 
 
 def split_high_detour_routes(routes, all_drivers, office_pos, road_network):
     """Split routes with high detour ratios into more efficient sub-routes"""
     print("  ✂️ Phase 2: Splitting high-detour routes...")
-    
+
     optimized_routes = []
     used_driver_ids = {r['driver_id'] for r in routes}
     available_drivers = [d for d in all_drivers if str(d['id']) not in used_driver_ids]
     splits_made = 0
-    
+
     for route in routes:
         # Skip routes with ≤2 users (can't split effectively)
         if len(route['assigned_users']) <= 2:
             optimized_routes.append(route)
             continue
-            
+
         # Calculate detour ratio
         detour_ratio = calculate_route_detour_ratio(route, office_pos, road_network)
-        
+
         if detour_ratio > 1.4 and len(route['assigned_users']) >= 3 and available_drivers:
             print(f"    🔍 High detour route {route['driver_id']}: {detour_ratio:.2f} ratio, attempting split...")
-            
+
             # Cluster users into 2 groups using road network awareness
             split_routes = split_route_into_clusters(route, available_drivers, office_pos, road_network)
-            
+
             if len(split_routes) > 1:
                 # Successfully split
                 optimized_routes.extend(split_routes)
-                
+
                 # Update available drivers
                 for split_route in split_routes:
                     if split_route['driver_id'] != route['driver_id']:  # New driver used
                         available_drivers = [d for d in available_drivers if str(d['id']) != split_route['driver_id']]
                         used_driver_ids.add(split_route['driver_id'])
-                        
+
                 splits_made += 1
                 print(f"    ✅ Split route {route['driver_id']} into {len(split_routes)} routes")
             else:
                 optimized_routes.append(route)
         else:
             optimized_routes.append(route)
-            
+
     print(f"    ✂️ Completed {splits_made} route splits")
     return optimized_routes, used_driver_ids
 
@@ -1577,23 +1738,23 @@ def split_high_detour_routes(routes, all_drivers, office_pos, road_network):
 def local_route_optimization(routes, unassigned_users, office_pos, road_network):
     """Local optimization: improve each route individually"""
     print("  🔧 Phase 3: Local route optimization...")
-    
+
     improvements_made = 0
-    
+
     for route in routes:
         original_user_count = len(route['assigned_users'])
-        
+
         # Try adding nearby unassigned users
         available_capacity = route['vehicle_type'] - len(route['assigned_users'])
         if available_capacity > 0 and unassigned_users:
             driver_pos = (route['latitude'], route['longitude'])
-            
+
             for user in unassigned_users[:]:  # Copy list to avoid modification during iteration
                 if available_capacity <= 0:
                     break
-                    
+
                 user_pos = (user['lat'], user['lng'])
-                
+
                 # Check if user fits well in this route
                 if road_network:
                     existing_users = [(u['lat'], u['lng']) for u in route['assigned_users']]
@@ -1604,7 +1765,7 @@ def local_route_optimization(routes, unassigned_users, office_pos, road_network)
                         # Test route quality after adding user
                         test_route = route.copy()
                         test_route['assigned_users'] = route['assigned_users'] + [user]
-                        
+
                         test_detour = calculate_route_detour_ratio(test_route, office_pos, road_network)
                         if test_detour < 1.3:  # Acceptable detour
                             route['assigned_users'].append(user)
@@ -1620,98 +1781,162 @@ def local_route_optimization(routes, unassigned_users, office_pos, road_network)
                         unassigned_users.remove(user)
                         available_capacity -= 1
                         improvements_made += 1
-        
+
         # Re-optimize pickup sequence
         if road_network and len(route['assigned_users']) > 1:
             driver_pos = (route['latitude'], route['longitude'])
             user_positions = [(u['lat'], u['lng']) for u in route['assigned_users']]
             optimal_sequence = road_network.get_optimal_pickup_sequence(driver_pos, user_positions, office_pos)
-            
+
             if optimal_sequence and len(optimal_sequence) == len(route['assigned_users']):
                 reordered_users = [route['assigned_users'][i] for i in optimal_sequence]
                 route['assigned_users'] = reordered_users
-                
+
         # Update route metrics
         update_route_metrics_improved(route, office_pos[0], office_pos[1])
-        
+
         final_user_count = len(route['assigned_users'])
         if final_user_count > original_user_count:
             improvements_made += 1
-            
+
     print(f"    🔧 Local optimization: {improvements_made} improvements made")
     return routes
 
 
 def global_optimization_pass(routes, office_pos, road_network):
-    """Global optimization: try swapping users between routes for overall improvement"""
-    print("  🌍 Phase 4: Global optimization pass...")
-    
-    max_iterations = 5
+    """Conservative global optimization: only make swaps that significantly improve route quality"""
+    print("  🌍 Phase 4: Conservative global optimization pass...")
+
+    max_iterations = 3  # Reduced iterations
     swaps_made = 0
-    
+    MIN_IMPROVEMENT_THRESHOLD = 1.0  # Require larger improvement
+
     for iteration in range(max_iterations):
         iteration_swaps = 0
-        
+
         # Try swapping users between every pair of routes
         for i, route_a in enumerate(routes):
             for j, route_b in enumerate(routes):
                 if i >= j or not route_a['assigned_users'] or not route_b['assigned_users']:
                     continue
-                    
+
+                # Skip if either route already has good utilization and quality
+                util_a = len(route_a['assigned_users']) / route_a['vehicle_type']
+                util_b = len(route_b['assigned_users']) / route_b['vehicle_type']
+                
+                # Don't mess with well-utilized routes unless they have quality issues
+                if util_a > 0.8 and route_a.get('turning_score', 0) < 35:
+                    continue
+                if util_b > 0.8 and route_b.get('turning_score', 0) < 35:
+                    continue
+
                 # Try moving one user from route_a to route_b
                 for user_idx, user in enumerate(route_a['assigned_users']):
                     # Check if route_b has capacity
                     if len(route_b['assigned_users']) >= route_b['vehicle_type']:
                         continue
-                        
-                    # Calculate current total distance
-                    current_total = (calculate_route_total_distance(route_a, office_pos, road_network) +
-                                   calculate_route_total_distance(route_b, office_pos, road_network))
-                    
+
+                    # Calculate current metrics for both routes
+                    current_distance_a = calculate_route_total_distance(route_a, office_pos, road_network)
+                    current_distance_b = calculate_route_total_distance(route_b, office_pos, road_network)
+                    current_turning_a = route_a.get('turning_score', 0)
+                    current_turning_b = route_b.get('turning_score', 0)
+
                     # Test the swap
                     test_route_a = route_a.copy()
                     test_route_b = route_b.copy()
                     test_route_a['assigned_users'] = [u for k, u in enumerate(route_a['assigned_users']) if k != user_idx]
                     test_route_b['assigned_users'] = route_b['assigned_users'] + [user]
-                    
+
                     # Skip if route_a becomes empty
                     if not test_route_a['assigned_users']:
                         continue
-                        
-                    # Check if user fits in route_b's path
+
+                    # Strict path checking with road network
                     if road_network:
                         driver_b_pos = (route_b['latitude'], route_b['longitude'])
                         existing_users_b = [(u['lat'], u['lng']) for u in route_b['assigned_users']]
                         user_pos = (user['lat'], user['lng'])
-                        
+
+                        # More strict path checking
                         if not road_network.is_user_on_route_path(
                             driver_b_pos, existing_users_b, user_pos, office_pos,
-                            max_detour_ratio=1.25, route_type="balanced"
+                            max_detour_ratio=1.15, route_type="straight"  # Stricter
                         ):
                             continue
+                        
+                        # Check coherence of resulting route
+                        test_coherence_b = road_network.get_route_coherence_score(
+                            driver_b_pos, [(u['lat'], u['lng']) for u in test_route_b['assigned_users']], office_pos
+                        )
+                        if test_coherence_b < 0.7:  # Require good coherence
+                            continue
+
+                    # Calculate new metrics
+                    new_distance_a = calculate_route_total_distance(test_route_a, office_pos, road_network)
+                    new_distance_b = calculate_route_total_distance(test_route_b, office_pos, road_network)
                     
-                    # Calculate new total distance
-                    new_total = (calculate_route_total_distance(test_route_a, office_pos, road_network) +
-                               calculate_route_total_distance(test_route_b, office_pos, road_network))
+                    # Calculate turning scores for test routes
+                    new_turning_a = calculate_route_turning_score_improved(
+                        test_route_a['assigned_users'],
+                        (test_route_a['latitude'], test_route_a['longitude']),
+                        office_pos
+                    ) if test_route_a['assigned_users'] else 0
                     
-                    # Accept if improvement
-                    if new_total < current_total - 0.5:  # At least 0.5km improvement
+                    new_turning_b = calculate_route_turning_score_improved(
+                        test_route_b['assigned_users'],
+                        (test_route_b['latitude'], test_route_b['longitude']),
+                        office_pos
+                    )
+
+                    # Calculate comprehensive improvement
+                    distance_improvement = (current_distance_a + current_distance_b) - (new_distance_a + new_distance_b)
+                    turning_improvement = (current_turning_a + current_turning_b) - (new_turning_a + new_turning_b)
+                    
+                    # Require both distance AND turning improvement, or significant improvement in one
+                    total_improvement = distance_improvement + (turning_improvement * 0.1)  # Weight turning at ~10km per degree
+                    
+                    # Stricter acceptance criteria
+                    quality_acceptable = (new_turning_a <= 40 and new_turning_b <= 40)  # Both routes must have good quality
+                    significant_improvement = total_improvement > MIN_IMPROVEMENT_THRESHOLD
+                    
+                    # Additional check: don't create routes with too many users going in different directions
+                    if road_network and len(test_route_b['assigned_users']) > 3:
+                        # Check if the route becomes too scattered
+                        max_bearing_spread = 0
+                        bearings = []
+                        for u in test_route_b['assigned_users']:
+                            bearing = road_network._calculate_bearing(office_pos[0], office_pos[1], u['lat'], u['lng'])
+                            bearings.append(bearing)
+                        
+                        if len(bearings) > 1:
+                            bearings.sort()
+                            for k in range(len(bearings)):
+                                spread = abs(bearings[(k + 1) % len(bearings)] - bearings[k])
+                                if spread > 180:
+                                    spread = 360 - spread
+                                max_bearing_spread = max(max_bearing_spread, spread)
+                        
+                        if max_bearing_spread > 60:  # Don't allow too much directional spread
+                            continue
+
+                    if quality_acceptable and significant_improvement:
                         route_a['assigned_users'] = test_route_a['assigned_users']
                         route_b['assigned_users'] = test_route_b['assigned_users']
-                        
+
                         # Update route metrics
                         update_route_metrics_improved(route_a, office_pos[0], office_pos[1])
                         update_route_metrics_improved(route_b, office_pos[0], office_pos[1])
-                        
+
                         iteration_swaps += 1
                         swaps_made += 1
-                        print(f"    🔄 Swapped user {user['user_id']} from route {route_a['driver_id']} to {route_b['driver_id']}")
+                        print(f"    🔄 Conservative swap: user {user['user_id']} from route {route_a['driver_id']} to {route_b['driver_id']} (improvement: {total_improvement:.1f})")
                         break  # Only one swap per route pair per iteration
-                        
+
         if iteration_swaps == 0:
             break  # No improvements found, exit early
-            
-    print(f"    🌍 Global optimization: {swaps_made} beneficial swaps made")
+
+    print(f"    🌍 Conservative global optimization: {swaps_made} quality-preserving swaps made")
     return routes
 
 
@@ -1719,18 +1944,18 @@ def calculate_route_detour_ratio(route, office_pos, road_network):
     """Calculate the detour ratio for a route"""
     if not route['assigned_users']:
         return 1.0
-        
+
     driver_pos = (route['latitude'], route['longitude'])
-    
+
     # Calculate actual route distance
     actual_distance = calculate_route_total_distance(route, office_pos, road_network)
-    
+
     # Calculate direct distance (driver to office)
     if road_network:
         direct_distance = road_network.get_road_distance(driver_pos[0], driver_pos[1], office_pos[0], office_pos[1])
     else:
         direct_distance = haversine_distance(driver_pos[0], driver_pos[1], office_pos[0], office_pos[1])
-    
+
     return actual_distance / max(direct_distance, 0.1)
 
 
@@ -1738,10 +1963,10 @@ def calculate_route_total_distance(route, office_pos, road_network):
     """Calculate total distance for a route"""
     if not route['assigned_users']:
         return 0.0
-        
+
     total_distance = 0.0
     current_pos = (route['latitude'], route['longitude'])
-    
+
     # Distance through all users
     for user in route['assigned_users']:
         user_pos = (user['lat'], user['lng'])
@@ -1751,31 +1976,190 @@ def calculate_route_total_distance(route, office_pos, road_network):
             distance = haversine_distance(current_pos[0], current_pos[1], user_pos[0], user_pos[1])
         total_distance += distance
         current_pos = user_pos
-        
+
     # Distance from last user to office
     if road_network:
         final_distance = road_network.get_road_distance(current_pos[0], current_pos[1], office_pos[0], office_pos[1])
     else:
         final_distance = haversine_distance(current_pos[0], current_pos[1], office_pos[0], office_pos[1])
     total_distance += final_distance
-    
+
     return total_distance
+
+
+def post_assignment_geographic_consolidation(routes, all_drivers, office_pos, road_network):
+    """
+    Post-assignment phase: Aggressively consolidate users who are geographically close
+    but ended up in different routes due to timing of assignment
+    """
+    print("  🌍 Phase 3: Post-assignment geographic consolidation...")
+
+    consolidations_made = 0
+    max_iterations = 3
+    GEOGRAPHIC_THRESHOLD_KM = 2.0  # Users within 2km should be in same route
+    MAX_ROUTE_DETOUR = 1.3  # Allow up to 30% detour for consolidation
+
+    for iteration in range(max_iterations):
+        iteration_consolidations = 0
+        
+        # Find all single-user routes and underutilized routes
+        single_user_routes = [r for r in routes if len(r['assigned_users']) == 1]
+        underutilized_routes = [r for r in routes if len(r['assigned_users']) <= 2 and r['vehicle_type'] >= 5]
+        
+        print(f"    📍 Iteration {iteration + 1}: {len(single_user_routes)} single-user routes, {len(underutilized_routes)} underutilized routes")
+        
+        # For each single-user route, try to find a better home
+        routes_to_remove = []
+        
+        for single_route in single_user_routes:
+            single_user = single_route['assigned_users'][0]
+            single_pos = (single_user['lat'], single_user['lng'])
+            best_target_route = None
+            best_consolidation_score = float('inf')
+            
+            # Look for target routes that could absorb this user
+            for target_route in routes:
+                if target_route['driver_id'] == single_route['driver_id']:
+                    continue
+                
+                # Check capacity
+                if len(target_route['assigned_users']) >= target_route['vehicle_type']:
+                    continue
+                
+                # Calculate geographic proximity to target route users
+                min_user_distance = float('inf')
+                for target_user in target_route['assigned_users']:
+                    target_pos = (target_user['lat'], target_user['lng'])
+                    distance = haversine_distance(single_pos[0], single_pos[1], target_pos[0], target_pos[1])
+                    min_user_distance = min(min_user_distance, distance)
+                
+                # Only consider if users are geographically close
+                if min_user_distance > GEOGRAPHIC_THRESHOLD_KM:
+                    continue
+                
+                # Test route quality after adding user
+                test_route = target_route.copy()
+                test_route['assigned_users'] = target_route['assigned_users'] + [single_user]
+                
+                # Calculate detour ratio
+                original_distance = calculate_route_total_distance(target_route, office_pos, road_network)
+                new_distance = calculate_route_total_distance(test_route, office_pos, road_network)
+                
+                # Check if addition creates reasonable route
+                if road_network:
+                    driver_pos = (target_route['latitude'], target_route['longitude'])
+                    existing_users = [(u['lat'], u['lng']) for u in target_route['assigned_users']]
+                    
+                    # Use more lenient path check for post-assignment consolidation
+                    on_path = road_network.is_user_on_route_path(
+                        driver_pos, existing_users, single_pos, office_pos,
+                        max_detour_ratio=MAX_ROUTE_DETOUR, route_type="balanced"
+                    )
+                    
+                    if not on_path:
+                        continue
+                
+                # Calculate consolidation score (lower is better)
+                route_center = calculate_route_center(target_route)
+                center_distance = haversine_distance(route_center[0], route_center[1], single_pos[0], single_pos[1])
+                utilization_bonus = len(target_route['assigned_users']) / target_route['vehicle_type']
+                
+                consolidation_score = (center_distance + min_user_distance - utilization_bonus * 2.0)
+                
+                if consolidation_score < best_consolidation_score:
+                    best_consolidation_score = consolidation_score
+                    best_target_route = target_route
+            
+            # Perform consolidation if good target found
+            if best_target_route:
+                print(f"    🔄 Consolidating user {single_user['user_id']} from driver {single_route['driver_id']} to driver {best_target_route['driver_id']} (distance: {best_consolidation_score:.2f}km)")
+                
+                # Move user to target route
+                best_target_route['assigned_users'].append(single_user)
+                
+                # Re-optimize target route
+                update_route_metrics_improved(best_target_route, office_pos[0], office_pos[1])
+                
+                # Mark single route for removal
+                routes_to_remove.append(single_route)
+                iteration_consolidations += 1
+                consolidations_made += 1
+        
+        # Remove empty routes
+        routes = [r for r in routes if r not in routes_to_remove]
+        
+        # Phase 2: Merge remaining underutilized routes with each other
+        remaining_underutilized = [r for r in routes if len(r['assigned_users']) <= 2 and r['vehicle_type'] >= 5]
+        
+        while len(remaining_underutilized) >= 2:
+            route_a = remaining_underutilized.pop(0)
+            best_merge_route = None
+            best_merge_distance = float('inf')
+            
+            for route_b in remaining_underutilized:
+                # Check if they can be merged
+                if len(route_a['assigned_users']) + len(route_b['assigned_users']) <= max(route_a['vehicle_type'], route_b['vehicle_type']):
+                    # Calculate distance between route centers
+                    center_a = calculate_route_center(route_a)
+                    center_b = calculate_route_center(route_b)
+                    center_distance = haversine_distance(center_a[0], center_a[1], center_b[0], center_b[1])
+                    
+                    if center_distance <= 5.0 and center_distance < best_merge_distance:  # Within 5km
+                        best_merge_distance = center_distance
+                        best_merge_route = route_b
+            
+            if best_merge_route:
+                print(f"    🔗 Merging underutilized routes {route_a['driver_id']} and {best_merge_route['driver_id']} (distance: {best_merge_distance:.2f}km)")
+                
+                # Use the route with higher capacity
+                if route_a['vehicle_type'] >= best_merge_route['vehicle_type']:
+                    target_route = route_a
+                    source_route = best_merge_route
+                else:
+                    target_route = best_merge_route
+                    source_route = route_a
+                
+                # Move all users from source to target
+                for user in source_route['assigned_users']:
+                    target_route['assigned_users'].append(user)
+                
+                # Update route metrics
+                update_route_metrics_improved(target_route, office_pos[0], office_pos[1])
+                
+                # Remove source route
+                routes = [r for r in routes if r['driver_id'] != source_route['driver_id']]
+                remaining_underutilized = [r for r in remaining_underutilized if r['driver_id'] != source_route['driver_id']]
+                
+                iteration_consolidations += 1
+                consolidations_made += 1
+                
+                break  # Restart the merging process
+        
+        if iteration_consolidations == 0:
+            break  # No more consolidations possible
+    
+    print(f"    🌍 Geographic consolidation complete: {consolidations_made} consolidations made")
+    
+    # Update used_driver_ids
+    used_driver_ids = {r['driver_id'] for r in routes}
+    
+    return routes, used_driver_ids
 
 
 def split_route_into_clusters(route, available_drivers, office_pos, road_network):
     """Split a route into 2 clusters using road network awareness"""
     if len(route['assigned_users']) < 3 or not available_drivers:
         return [route]
-        
+
     users = route['assigned_users']
     driver_pos = (route['latitude'], route['longitude'])
-    
+
     # Use DBSCAN clustering based on road distances
     if road_network:
         # Create distance matrix using road network
         n_users = len(users)
         distance_matrix = []
-        
+
         for i, user_a in enumerate(users):
             user_a_pos = (user_a['lat'], user_a['lng'])
             distances = []
@@ -1787,18 +2171,18 @@ def split_route_into_clusters(route, available_drivers, office_pos, road_network
                     dist = road_network.get_road_distance(user_a_pos[0], user_a_pos[1], user_b_pos[0], user_b_pos[1])
                     distances.append(dist)
             distance_matrix.append(distances)
-        
+
         # Simple clustering: split by distance from driver
         user_distances = []
         for user in users:
             user_pos = (user['lat'], user['lng'])
             dist = road_network.get_road_distance(driver_pos[0], driver_pos[1], user_pos[0], user_pos[1])
             user_distances.append((user, dist))
-        
+
         # Sort by distance and split roughly in half
         user_distances.sort(key=lambda x: x[1])
         mid_point = len(user_distances) // 2
-        
+
         cluster_1 = [item[0] for item in user_distances[:mid_point]]
         cluster_2 = [item[0] for item in user_distances[mid_point:]]
     else:
@@ -1806,11 +2190,11 @@ def split_route_into_clusters(route, available_drivers, office_pos, road_network
         mid_point = len(users) // 2
         cluster_1 = users[:mid_point]
         cluster_2 = users[mid_point:]
-    
+
     # Create route for cluster 1 (keep original driver)
     route_1 = route.copy()
     route_1['assigned_users'] = cluster_1
-    
+
     # Create route for cluster 2 (assign new driver)
     if available_drivers and cluster_2:
         # Find best driver for cluster 2
@@ -1818,10 +2202,10 @@ def split_route_into_clusters(route, available_drivers, office_pos, road_network
             sum(u['lat'] for u in cluster_2) / len(cluster_2),
             sum(u['lng'] for u in cluster_2) / len(cluster_2)
         )
-        
+
         best_driver = None
         best_distance = float('inf')
-        
+
         for driver in available_drivers:
             if driver['capacity'] >= len(cluster_2):
                 distance = haversine_distance(
@@ -1831,7 +2215,7 @@ def split_route_into_clusters(route, available_drivers, office_pos, road_network
                 if distance < best_distance:
                     best_distance = distance
                     best_driver = driver
-        
+
         if best_driver:
             route_2 = {
                 'driver_id': str(best_driver['id']),
@@ -1841,13 +2225,13 @@ def split_route_into_clusters(route, available_drivers, office_pos, road_network
                 'longitude': float(best_driver['longitude']),
                 'assigned_users': cluster_2
             }
-            
+
             # Update route metrics for both routes
             update_route_metrics_improved(route_1, office_pos[0], office_pos[1])
             update_route_metrics_improved(route_2, office_pos[0], office_pos[1])
-            
+
             return [route_1, route_2]
-    
+
     # If splitting failed, return original route
     return [route]
 
