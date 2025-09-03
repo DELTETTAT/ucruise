@@ -533,7 +533,7 @@ class RoadNetwork:
                 return self._hybrid_distance_calculation(lat1, lon1, lat2, lon2, node1, node2, dist1, dist2)
             
             if node1 == node2:
-                return self._calculate_distance(lat1, lon1, lat2, lon2)
+                return self._calculate_distance(lat1, lon1, lat2, lat2)
             
             # Calculate path distance
             path_distance = self._get_shortest_path_distance(node1, node2)
@@ -591,19 +591,20 @@ class RoadNetwork:
             return 0
         
         ratio = road_distance / straight_distance
-        max_ratio = self.config.get('road_network.distance_validation.max_reasonable_ratio', 5.0)
-        min_efficiency = self.config.get('road_network.distance_validation.min_road_efficiency', 0.1)
-        
+        max_ratio = self.config.get('road_network.distance_validation.max_reasonable_ratio', 3.0)  # Reduced from 5.0
+        min_efficiency = self.config.get('road_network.distance_validation.min_road_efficiency', 0.2)  # Increased from 0.1
+
         # Check if ratio is reasonable
         if ratio > max_ratio:
-            logger.warning(f"Unreasonable road distance ratio: {ratio:.2f}, using hybrid calculation")
-            return straight_distance * min(ratio, 2.0)  # Cap at 2x straight distance
-        
+            logger.warning(f"Unreasonable road distance ratio: {ratio:.2f}, using conservative estimate")
+            # More conservative fallback - use 1.5x straight distance instead of uncapped ratio
+            return straight_distance * 1.5
+
         # Check minimum efficiency
         if ratio < min_efficiency:
             logger.warning(f"Road distance too efficient: {ratio:.2f}, using straight distance")
             return straight_distance
-        
+
         return road_distance
 
     def get_route_coherence_score(self, driver_pos: Tuple[float, float], 
@@ -739,9 +740,8 @@ class RoadNetwork:
             
         except Exception as e:
             logger.warning(f"Path checking failed: {e}")
-            # Conservative fallback
-            straight_distance = self._calculate_distance(driver_pos[0], driver_pos[1], candidate_pos[0], candidate_pos[1])
-            return straight_distance <= 5.0
+            # Strict fallback - if road checking fails, reject the assignment
+            return False
 
     def _check_detour_ratio(self, driver_pos: Tuple[float, float], candidate_pos: Tuple[float, float], 
                            office_pos: Tuple[float, float], max_detour_ratio: float) -> bool:
@@ -767,9 +767,9 @@ class RoadNetwork:
             office_node, _ = self.find_nearest_road_node(office_pos[0], office_pos[1])
             candidate_node, candidate_dist = self.find_nearest_road_node(candidate_pos[0], candidate_pos[1])
             
-            if not all([driver_node, office_node, candidate_node]) or candidate_dist > 2.0:
+            if not all([driver_node, office_node, candidate_node]) or candidate_dist > 1.0:  # Reduced from 2.0km
                 return False
-            
+
             try:
                 path = nx.shortest_path(self.graph, driver_node, office_node, weight='weight')
                 return candidate_node in path or self._is_near_path(candidate_node, path)
@@ -790,7 +790,7 @@ class RoadNetwork:
             if path_node in self.node_positions:
                 path_pos = self.node_positions[path_node]
                 distance = self._calculate_distance(candidate_pos[0], candidate_pos[1], path_pos[0], path_pos[1])
-                if distance <= 1.0:  # Within 1km
+                if distance <= 0.5:  # Reduced from 1km to 500m
                     return True
         
         return False

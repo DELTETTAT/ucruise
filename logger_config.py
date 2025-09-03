@@ -125,7 +125,7 @@ class RouteAssignmentLogger:
             for driver in unused_drivers:
                 self.logger.warning(f"  Driver {driver.get('driver_id', 'N/A')} capacity {driver.get('capacity', 'N/A')}")
 
-        self.logger.logger.info("="*80)
+        self.logger.info("="*80)
 
     def log_accounting_check(self, api_users, final_assigned, final_unassigned, discrepancy):
         self.logger.critical("USER ACCOUNTING CHECK")
