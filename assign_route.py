@@ -50,7 +50,7 @@ class SimpleRouteAssigner:
 
             # Sort by distance to driver
             available_users.sort(key=lambda u: haversine_distance(
-                driver_pos[0], driver_pos[1], 
+                driver_pos[0], driver_pos[1],
                 float(u['latitude']), float(u['longitude'])
             ))
 
@@ -193,21 +193,24 @@ class RoadCorridorAnalyzer:
                     min_bearing_diff = bearing_diff
                     best_corridor = direction
 
-            if best_corridor and min_bearing_diff <= 45:  # Within 45 degrees
+            # Use stricter bearing tolerance for better corridor consistency
+            bearing_tolerance = 35.0  # Narrowed from 60 degrees for meaningful corridors
+            if best_corridor and min_bearing_diff <= bearing_tolerance:
                 user_data = {
                     'user_id': str(user['id']),
                     'lat': float(user['latitude']),
                     'lng': float(user['longitude']),
-                    'office_distance': haversine_distance(
-                        user_pos[0], user_pos[1], 
-                        self.office_pos[0], self.office_pos[1]
-                    )
                 }
-                if user.get('first_name'):
-                    user_data['first_name'] = str(user['first_name'])
-                if user.get('email'):
-                    user_data['email'] = str(user['email'])
 
+                # Use road distance for office distance when available
+                if self.road_network:
+                    user_data['office_distance'] = self.road_network.get_road_distance(
+                        user_pos[0], user_pos[1], self.office_pos[0], self.office_pos[1]
+                    )
+                else:
+                    user_data['office_distance'] = haversine_distance(
+                        user_pos[0], user_pos[1], self.office_pos[0], self.office_pos[1]
+                    )
                 self.corridors[best_corridor]['users'].append(user_data)
 
     def get_corridor_routes(self):
@@ -268,7 +271,7 @@ class RoadCorridorAnalyzer:
                 # 3. If route has users, new user must be even closer to office than furthest existing user
                 if route_users:
                     furthest_user_office_distance = max([
-                        haversine_distance(u['lat'], u['lng'], office_pos[0], office_pos[1]) 
+                        haversine_distance(u['lat'], u['lng'], office_pos[0], office_pos[1])
                         for u in route_users
                     ])
 
@@ -333,8 +336,6 @@ class RoadCorridorAnalyzer:
 
                 # Determine route type for road network functions
                 route_type = "straight" if mode == "efficiency" else "balanced" if mode == "balanced" else "capacity"
-
-                # Check if user is on route path with road network awareness
                 config = OPTIMIZATION_CONFIGS.get(mode, OPTIMIZATION_CONFIGS["balanced"])
                 max_detour = config.get('max_detour_ratio', 1.2)  # Tighter detour ratio
 
@@ -364,7 +365,7 @@ class RoadCorridorAnalyzer:
                 if route_users:
                     user_office_distance = haversine_distance(user_pos[0], user_pos[1], office_pos[0], office_pos[1])
                     closest_user_office_distance = min([
-                        haversine_distance(u['lat'], u['lng'], office_pos[0], office_pos[1]) 
+                        haversine_distance(u['lat'], u['lng'], office_pos[0], office_pos[1])
                         for u in route_users
                     ])
 
@@ -439,7 +440,7 @@ class RoadCorridorAnalyzer:
                 else:
                     optimized_sequence = self.road_network.get_optimal_pickup_sequence(
                         driver_pos,
-                        [(float(user['latitude']), float(user['longitude'])) for user in route_users],
+                        [(float(user['latitude']), float(user['longitude'])) for u in route_users],
                         office_pos
                     ) if self.road_network else list(range(len(route_users)))
 
@@ -479,7 +480,7 @@ class RoadCorridorAnalyzer:
         score += num_users * 10
 
         # CRITICAL: Check for sequential ordering (no backtracking)
-        office_distances = [haversine_distance(u['lat'], u['lng'], office_pos[0], office_pos[1]) 
+        office_distances = [haversine_distance(u['lat'], u['lng'], office_pos[0], office_pos[1])
                            for u in route['assigned_users']]
         driver_office_distance = haversine_distance(driver_pos[0], driver_pos[1], office_pos[0], office_pos[1])
 
@@ -679,7 +680,7 @@ def assign_routes_road_aware(data):
     else:
         logger.info("   Users: No users found in API response")
 
-    # Detailed driver breakdown  
+    # Detailed driver breakdown
     if all_drivers:
         logger.info(f"   Driver ID Range: {all_drivers[0]['id']} to {all_drivers[-1]['id']}")
         shift_types = {}
@@ -1287,7 +1288,7 @@ def calculate_route_turning_score_improved(users, driver_pos, office_pos):
     for i in range(len(users) + 1):  # +1 to include office segment
         if i == 0:
             # Driver to first user
-            current_bearing = calculate_bearing(driver_pos[0], driver_pos[1], 
+            current_bearing = calculate_bearing(driver_pos[0], driver_pos[1],
                                               users[0]['lat'], users[0]['lng'])
         elif i == len(users):
             # Last user to office
@@ -1405,7 +1406,7 @@ def assign_routes_fallback(data):
                 )
                 # Find the minimum office distance among currently assigned users
                 last_user_office_distance = min([
-                    haversine_distance(u['lat'], u['lng'], office_pos[0], office_pos[1]) 
+                    haversine_distance(u['lat'], u['lng'], office_pos[0], office_pos[1])
                     for u in current_route['assigned_users']
                 ])
                 if user_office_distance > last_user_office_distance:
@@ -1475,11 +1476,18 @@ def assign_routes_fallback(data):
                 if len(route['assigned_users']) < route['vehicle_type']:
                     user_pos = (float(user['latitude']), float(user['longitude']))
                     driver_pos = (route['latitude'], route['longitude'])
-                    distance = haversine_distance(user_pos[0], user_pos[1], driver_pos[0], driver_pos[1])
 
-                    # More relaxed constraints: up to 25km distance for distant users
-                    if distance < 25.0 and distance < best_distance:
+                    # Use road distance for realistic constraints
+                    if ROAD_NETWORK:
+                        road_distance = ROAD_NETWORK.get_road_distance(user_pos[0], user_pos[1], driver_pos[0], driver_pos[1])
+                        distance = road_distance
+                    else:
+                        distance = haversine_distance(user_pos[0], user_pos[1], driver_pos[0], driver_pos[1])
+
+                    # More relaxed constraints: up to 15km road distance for distant users
+                    if distance < 15.0 and distance < best_distance:
                         best_route = route
+                        best_distance = distance
 
             if best_route:
                 user_data = {
@@ -1595,6 +1603,10 @@ def run_road_aware_assignment(source_id: str, parameter: int = 1, string_param: 
     """Main entry point for road-aware assignment"""
     start_time = time.time()
 
+    # Start a new logging session to prevent multiple log files
+    from logger_config import start_session, end_session
+    logger = start_session()
+
     logger.info(f"Starting road-aware assignment for source_id: {source_id}")
     logger.info(f"Parameter: {parameter}, String parameter: {string_param}")
 
@@ -1626,6 +1638,10 @@ def run_road_aware_assignment(source_id: str, parameter: int = 1, string_param: 
             "unassignedUsers": [],
             "unassignedDrivers": []
         }
+    finally:
+        # End the logging session
+        from logger_config import end_session
+        end_session()
 
 
 def merge_underutilized_routes(routes, all_drivers, office_pos, road_network):
@@ -1992,7 +2008,7 @@ def global_optimization_pass(routes, office_pos, road_network):
                     # Require both distance AND turning improvement, or significant improvement in one
                     total_improvement = distance_improvement + (turning_improvement * 0.1)  # Weight turning at ~10km per degree
 
-                    # Stricter acceptance criteria
+                    # Quality acceptable check
                     quality_acceptable = (new_turning_a <= 40 and new_turning_b <= 40)  # Both routes must have good quality
                     significant_improvement = total_improvement > MIN_IMPROVEMENT_THRESHOLD
 
@@ -2125,7 +2141,7 @@ def post_assignment_geographic_consolidation(routes, all_drivers, office_pos, ro
                 # Calculate geographic proximity to target route users
                 min_user_distance = float('inf')
                 for target_user in target_route['assigned_users']:
-                    target_pos = (target_user['lat'], target_pos[0], target_user['lng'])
+                    target_pos = (target_user['lat'], target_user['lng'])
                     distance = haversine_distance(single_pos[0], single_pos[1], target_pos[0], target_pos[1])
                     min_user_distance = min(min_user_distance, distance)
 
