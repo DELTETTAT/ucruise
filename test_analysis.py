@@ -1,21 +1,23 @@
-
 import os
 import json
 import requests
 from datetime import datetime
 from dotenv import load_dotenv
 from assignment import run_assignment
+from logger_config import get_logger
+
+logger = get_logger()
 
 def capture_api_response(source_id, parameter, string_param):
     """
     Capture the raw API response when fetching data
     """
-    print("🌐 CAPTURING API REQUEST/RESPONSE")
-    print("="*60)
+    logger.info("CAPTURING API REQUEST/RESPONSE")
+    logger.info("="*60)
     
     # Load environment variables
     if not os.path.exists(".env"):
-        print("❌ ERROR: .env file not found!")
+        logger.error(".env file not found!")
         return None
     
     load_dotenv(".env")
@@ -23,7 +25,7 @@ def capture_api_response(source_id, parameter, string_param):
     API_AUTH_TOKEN = os.getenv("API_AUTH_TOKEN")
     
     if not BASE_API_URL or not API_AUTH_TOKEN:
-        print("❌ Missing API_URL or API_AUTH_TOKEN in .env file")
+        logger.error("Missing API_URL or API_AUTH_TOKEN in .env file")
         return None
     
     # Construct API URL
@@ -34,47 +36,47 @@ def capture_api_response(source_id, parameter, string_param):
         "Content-Type": "application/json"
     }
     
-    print(f"📡 API Request Details:")
-    print(f"   URL: {API_URL}")
-    print(f"   Headers: {json.dumps(headers, indent=2)}")
-    print(f"   Method: GET")
-    print(f"   Timestamp: {datetime.now().isoformat()}")
+    logger.info(f"API Request Details:")
+    logger.info(f"URL: {API_URL}")
+    logger.debug(f"Headers: {json.dumps(headers, indent=2)}")
+    logger.info(f"Method: GET")
+    logger.info(f"Timestamp: {datetime.now().isoformat()}")
     
     try:
-        print("\n⏳ Making API request...")
+        logger.info("Making API request...")
         response = requests.get(API_URL, headers=headers, timeout=30)
         
-        print(f"\n📊 API Response Details:")
-        print(f"   Status Code: {response.status_code}")
-        print(f"   Response Time: {response.elapsed.total_seconds():.2f} seconds")
-        print(f"   Content-Type: {response.headers.get('content-type', 'unknown')}")
-        print(f"   Content-Length: {len(response.text)} characters")
+        logger.info(f"API Response Details:")
+        logger.info(f"Status Code: {response.status_code}")
+        logger.info(f"Response Time: {response.elapsed.total_seconds():.2f} seconds")
+        logger.debug(f"Content-Type: {response.headers.get('content-type', 'unknown')}")
+        logger.debug(f"Content-Length: {len(response.text)} characters")
         
         if response.status_code == 200:
             try:
                 response_data = response.json()
-                print(f"   JSON Structure: Valid")
+                logger.debug(f"JSON Structure: Valid")
                 
                 # Analyze response structure
                 if isinstance(response_data, dict):
-                    print(f"   Top-level keys: {list(response_data.keys())}")
+                    logger.debug(f"Top-level keys: {list(response_data.keys())}")
                     
                     # Check for users
                     users = response_data.get('users', [])
-                    print(f"   Users count: {len(users)}")
+                    logger.debug(f"Users count: {len(users)}")
                     
                     # Check for drivers structure
                     if 'drivers' in response_data:
                         drivers = response_data['drivers']
                         drivers_unassigned = drivers.get('driversUnassigned', [])
                         drivers_assigned = drivers.get('driversAssigned', [])
-                        print(f"   Drivers Unassigned: {len(drivers_unassigned)}")
-                        print(f"   Drivers Assigned: {len(drivers_assigned)}")
+                        logger.debug(f"Drivers Unassigned: {len(drivers_unassigned)}")
+                        logger.debug(f"Drivers Assigned: {len(drivers_assigned)}")
                     else:
                         drivers_unassigned = response_data.get('driversUnassigned', [])
                         drivers_assigned = response_data.get('driversAssigned', [])
-                        print(f"   Drivers Unassigned (flat): {len(drivers_unassigned)}")
-                        print(f"   Drivers Assigned (flat): {len(drivers_assigned)}")
+                        logger.debug(f"Drivers Unassigned (flat): {len(drivers_unassigned)}")
+                        logger.debug(f"Drivers Assigned (flat): {len(drivers_assigned)}")
                 
                 return {
                     "request": {
@@ -96,7 +98,7 @@ def capture_api_response(source_id, parameter, string_param):
                 }
                 
             except json.JSONDecodeError as e:
-                print(f"   JSON Structure: Invalid - {e}")
+                logger.error(f"JSON Structure: Invalid - {e}")
                 return {
                     "request": {
                         "url": API_URL,
@@ -114,7 +116,7 @@ def capture_api_response(source_id, parameter, string_param):
                     }
                 }
         else:
-            print(f"   Error Response: {response.text[:500]}")
+            logger.error(f"Error Response: {response.text[:500]}")
             return {
                 "request": {
                     "url": API_URL,
@@ -131,7 +133,7 @@ def capture_api_response(source_id, parameter, string_param):
             }
             
     except Exception as e:
-        print(f"❌ Request failed: {e}")
+        logger.error(f"Request failed: {e}")
         return {
             "request": {
                 "url": API_URL,
@@ -149,38 +151,38 @@ def main():
     """
     Test script to capture API request/response and assignment results
     """
-    print("🧪 API REQUEST/RESPONSE CAPTURE TEST")
-    print("="*60)
+    logger.info("API REQUEST/RESPONSE CAPTURE TEST")
+    logger.info("="*60)
     
     # Configuration
     source_id = "UC_frontdev"  # Update this to match your API format
     parameter = 1
     string_param = "Evening%20shift"  # Use plain text, let requests handle URL encoding
     
-    print(f"📋 Test Configuration:")
-    print(f"   Source ID: {source_id}")
-    print(f"   Parameter: {parameter}")
-    print(f"   String Parameter: {string_param}")
-    print(f"   Current Directory: {os.getcwd()}")
-    print(f"   .env File Exists: {os.path.exists('.env')}")
+    logger.info(f"Test Configuration:")
+    logger.info(f"Source ID: {source_id}")
+    logger.info(f"Parameter: {parameter}")
+    logger.info(f"String Parameter: {string_param}")
+    logger.info(f"Current Directory: {os.getcwd()}")
+    logger.info(f".env File Exists: {os.path.exists('.env')}")
     
     # Step 1: Capture API request/response
-    print(f"\n" + "="*60)
-    print("STEP 1: CAPTURING RAW API DATA")
-    print("="*60)
+    logger.info("="*60)
+    logger.info("STEP 1: CAPTURING RAW API DATA")
+    logger.info("="*60)
     
     api_capture = capture_api_response(source_id, parameter, string_param)
     
     if not api_capture:
-        print("❌ Failed to capture API data")
+        logger.error("Failed to capture API data")
         return
     
     # Step 2: Run assignment and capture result
-    print(f"\n" + "="*60)
-    print("STEP 2: RUNNING ASSIGNMENT ALGORITHM")
-    print("="*60)
+    logger.info("="*60)
+    logger.info("STEP 2: RUNNING ASSIGNMENT ALGORITHM")
+    logger.info("="*60)
     
-    print("🚀 Starting assignment algorithm...")
+    logger.info("Starting assignment algorithm...")
     assignment_start_time = datetime.now()
     
     try:
@@ -188,26 +190,45 @@ def main():
         assignment_end_time = datetime.now()
         assignment_duration = (assignment_end_time - assignment_start_time).total_seconds()
         
-        print(f"✅ Assignment completed in {assignment_duration:.2f} seconds")
-        print(f"📊 Assignment Status: {assignment_result.get('status', 'unknown')}")
+        logger.info(f"Assignment completed in {assignment_duration:.2f} seconds")
+        logger.info(f"Assignment Status: {assignment_result.get('status', 'unknown')}")
+        
+        # Check if API had any drivers
+        api_data = api_capture.get('response', {}).get('data', {})
+        total_drivers_in_api = (
+            len(api_data.get('driversUnassigned', [])) + 
+            len(api_data.get('driversAssigned', []))
+        )
+        
+        if total_drivers_in_api == 0:
+            logger.warning(f"⚠️ NO DRIVERS IN API RESPONSE - Assignment will fail")
+            logger.warning(f"This explains why assignment returned 0 routes")
         
         if assignment_result.get('status') == 'true':
             routes = assignment_result.get('data', [])
             unassigned_users = assignment_result.get('unassignedUsers', [])
             unassigned_drivers = assignment_result.get('unassignedDrivers', [])
             
-            print(f"   Routes Created: {len(routes)}")
-            print(f"   Users Assigned: {sum(len(route.get('assigned_users', [])) for route in routes)}")
-            print(f"   Users Unassigned: {len(unassigned_users)}")
-            print(f"   Drivers Used: {len(routes)}")
-            print(f"   Drivers Unused: {len(unassigned_drivers)}")
+            logger.info(f"Routes Created: {len(routes)}")
+            logger.info(f"Users Assigned: {sum(len(route.get('assigned_users', [])) for route in routes)}")
+            logger.info(f"Users Unassigned: {len(unassigned_users)}")
+            logger.info(f"Drivers Used: {len(routes)}")
+            logger.info(f"Drivers Unused: {len(unassigned_drivers)}")
+            
+            if len(routes) == 0 and total_drivers_in_api == 0:
+                logger.info("✅ Assignment correctly handled case with no drivers available")
         else:
-            print(f"   Assignment Error: {assignment_result.get('details', 'Unknown error')}")
+            logger.error(f"Assignment Error: {assignment_result.get('details', 'Unknown error')}")
+            
+            # Check if error is related to no drivers
+            error_details = assignment_result.get('details', '')
+            if 'division by zero' in error_details.lower() or total_drivers_in_api == 0:
+                logger.info("💡 This error is likely caused by having no drivers in the API response")
     
     except Exception as e:
         assignment_end_time = datetime.now()
         assignment_duration = (assignment_end_time - assignment_start_time).total_seconds()
-        print(f"❌ Assignment failed after {assignment_duration:.2f} seconds: {e}")
+        logger.error(f"Assignment failed after {assignment_duration:.2f} seconds: {e}")
         
         assignment_result = {
             "status": "false",
@@ -217,9 +238,9 @@ def main():
         }
     
     # Step 3: Compile complete test report
-    print(f"\n" + "="*60)
-    print("STEP 3: GENERATING COMPLETE TEST REPORT")
-    print("="*60)
+    logger.info("="*60)
+    logger.info("STEP 3: GENERATING COMPLETE TEST REPORT")
+    logger.info("="*60)
     
     complete_report = {
         "test_metadata": {
@@ -246,7 +267,11 @@ def main():
             "drivers_from_api": (
                 len(api_capture.get('response', {}).get('data', {}).get('driversUnassigned', [])) +
                 len(api_capture.get('response', {}).get('data', {}).get('driversAssigned', []))
-            )
+            ),
+            "api_has_drivers": (
+                len(api_capture.get('response', {}).get('data', {}).get('driversUnassigned', [])) +
+                len(api_capture.get('response', {}).get('data', {}).get('driversAssigned', []))
+            ) > 0
         }
     }
     
@@ -257,27 +282,31 @@ def main():
         with open(output_filename, 'w') as f:
             json.dump(complete_report, f, indent=2, default=str)
         
-        print(f"✅ Complete test report saved to: {output_filename}")
-        print(f"📄 File size: {os.path.getsize(output_filename)} bytes")
+        logger.info(f"Complete test report saved to: {output_filename}")
+        logger.info(f"File size: {os.path.getsize(output_filename)} bytes")
         
         # Display summary
-        print(f"\n📊 TEST SUMMARY:")
-        print(f"   API Status: {'✅ Success' if complete_report['summary']['api_request_successful'] else '❌ Failed'}")
-        print(f"   Assignment Status: {'✅ Success' if complete_report['summary']['assignment_successful'] else '❌ Failed'}")
-        print(f"   API Response Size: {complete_report['summary']['total_api_response_size']} characters")
-        print(f"   Users from API: {complete_report['summary']['users_from_api']}")
-        print(f"   Drivers from API: {complete_report['summary']['drivers_from_api']}")
-        print(f"   Routes Generated: {complete_report['summary']['routes_generated']}")
+        logger.info(f"TEST SUMMARY:")
+        logger.info(f"API Status: {'✅ Success' if complete_report['summary']['api_request_successful'] else '❌ Failed'}")
+        logger.info(f"Assignment Status: {'✅ Success' if complete_report['summary']['assignment_successful'] else '❌ Failed'}")
+        logger.info(f"API Response Size: {complete_report['summary']['total_api_response_size']} characters")
+        logger.info(f"Users from API: {complete_report['summary']['users_from_api']}")
+        logger.info(f"Drivers from API: {complete_report['summary']['drivers_from_api']}")
+        logger.info(f"Routes Generated: {complete_report['summary']['routes_generated']}")
         
-        print(f"\n🎯 REPORT SECTIONS:")
-        print(f"   • test_metadata: General test information")
-        print(f"   • api_data_capture: Raw API request/response data")
-        print(f"   • assignment_execution: Assignment algorithm results")
-        print(f"   • summary: Key metrics and status")
+        logger.info(f"REPORT SECTIONS:")
+        logger.info(f"• test_metadata: General test information")
+        logger.info(f"• api_data_capture: Raw API request/response data")
+        logger.info(f"• assignment_execution: Assignment algorithm results")
+        logger.info(f"• summary: Key metrics and status")
         
     except Exception as e:
-        print(f"❌ Failed to save report: {e}")
-        print(f"📋 Report data available in memory but not saved")
+        logger.error(f"Failed to save report: {e}")
+        logger.info(f"Report data available in memory but not saved to file")
+        
+    except Exception as e:
+        logger.error(f"Failed to analyze assignment: {e}")
+        return None
 
 if __name__ == "__main__":
     main()

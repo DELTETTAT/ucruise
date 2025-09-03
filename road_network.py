@@ -1,4 +1,3 @@
-
 import networkx as nx
 import numpy as np
 from functools import lru_cache
@@ -10,8 +9,9 @@ from collections import defaultdict, OrderedDict
 import weakref
 import threading
 from datetime import datetime, timedelta
+from logger_config import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger()
 
 class RoadNetworkConfig:
     """Centralized configuration management for road network parameters"""

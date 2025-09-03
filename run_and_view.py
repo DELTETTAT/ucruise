@@ -6,7 +6,7 @@ import sys
 import argparse
 from assignment import run_assignment, analyze_assignment_quality
 
-SOURCE_ID = "UC_unify_dev"  # <-- Replace with your real source_id
+SOURCE_ID = "UC_logisticllp"  # <-- Replace with your real source_id
 PARAMETER = 1  # Example numerical parameter
 STRING_PARAM = "Evening%20shift" # Example string parameter
 
@@ -45,7 +45,9 @@ def get_user_choice():
             else:
                 print("❌ Please enter 1, 2, 3, or 4")
         except (ValueError, KeyboardInterrupt):
-            print("\n🛑 Operation cancelled by user")
+            from logger_config import get_logger
+            logger = get_logger()
+            logger.info("Operation cancelled by user")
             exit(0)
 
 def start_fastapi():

@@ -11,7 +11,7 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -27,24 +27,20 @@ def health_check():
 @app.post("/assign-drivers/{source_id}/{parameter}/{string_param}")
 def assign_drivers(source_id: str, parameter: int, string_param: str):
     try:
-        print(f"🚗 Starting ROUTE EFFICIENCY assignment for source_id: {source_id}, parameter: {parameter}, string_param: {string_param}")
         result = run_assignment(source_id, parameter, string_param)
 
         if result["status"] == "true":
-            print(f"✅ Assignment successful. Routes: {len(result['data'])}")
-            print(f"📋 Parameter value: {result.get('parameter', 'Not provided')}")
-            print(f"📋 String parameter value: {result.get('string_param', 'Not provided')}")
             with open("drivers_and_routes.json", "w") as f:
                 import json
                 json.dump(result["data"], f, indent=2)
-        else:
-            print(f"❌ Assignment failed: {result.get('details', 'Unknown error')}")
 
         return result
 
     except Exception as e:
-        print(f"❌ Server error: {e}")
-        return {"status": "false", "details": f"Server error: {str(e)}", "data": [], "parameter": 1, "string_param": ""}
+        from logger_config import get_logger
+        logger = get_logger()
+        logger.critical(f"Server error in assign_drivers: {e}")
+        return {"status": "false", "details": f"Server error: {str(e)}", "data": [], "parameter": parameter, "string_param": string_param}
 
 @app.get("/routes")
 def get_routes():

@@ -1,4 +1,3 @@
-
 import os
 import math
 import requests
@@ -31,7 +30,7 @@ def load_and_validate_config():
         with open('config.json') as f:
             cfg = json.load(f)
     except (FileNotFoundError, json.JSONDecodeError) as e:
-        print(f"Warning: Could not load config.json, using defaults. Error: {e}")
+        logger.warning(f"Could not load config.json, using defaults. Error: {e}")
         cfg = {}
 
     # Always use capacity mode
@@ -41,7 +40,7 @@ def load_and_validate_config():
     mode_configs = cfg.get("mode_configs", {})
     mode_config = mode_configs.get("capacity_optimization", {})
 
-    print(f"🎯 Using optimization mode: CAPACITY OPTIMIZATION")
+    logger.info(f"🎯 Using optimization mode: CAPACITY OPTIMIZATION")
     
     # Validate and set configuration with mode-specific overrides
     config = {}
@@ -78,10 +77,10 @@ def load_and_validate_config():
 
     # Validate coordinate bounds
     if not (-90 <= office_lat <= 90):
-        print(f"Warning: Invalid office latitude {office_lat}, using default")
+        logger.warning(f"Invalid office latitude {office_lat}, using default")
         office_lat = 30.6810489
     if not (-180 <= office_lon <= 180):
-        print(f"Warning: Invalid office longitude {office_lon}, using default")
+        logger.warning(f"Invalid office longitude {office_lon}, using default")
         office_lon = 76.7260711
 
     config['OFFICE_LAT'] = office_lat
@@ -112,11 +111,11 @@ def load_and_validate_config():
     config['LAT_TO_KM'] = 111.0
     config['LON_TO_KM'] = 111.0 * math.cos(math.radians(office_lat))
 
-    print(f"   📊 Max bearing difference: {config['MAX_BEARING_DIFFERENCE']}°")
-    print(f"   📊 Max turning score: {config['MAX_TURNING_ANGLE']}°")
-    print(f"   📊 Max fill distance: {config['MAX_FILL_DISTANCE_KM']}km")
-    print(f"   📊 Capacity weight: {config['capacity_weight']}")
-    print(f"   📊 Direction weight: {config['direction_weight']}")
+    logger.info(f"   📊 Max bearing difference: {config['MAX_BEARING_DIFFERENCE']}°")
+    logger.info(f"   📊 Max turning score: {config['MAX_TURNING_ANGLE']}°")
+    logger.info(f"   📊 Max fill distance: {config['MAX_FILL_DISTANCE_KM']}km")
+    logger.info(f"   📊 Capacity weight: {config['capacity_weight']}")
+    logger.info(f"   📊 Direction weight: {config['direction_weight']}")
 
     return config
 
@@ -171,7 +170,7 @@ def assign_drivers_by_priority_capacity_focused(user_df, driver_df, office_lat, 
     """
     Directional capacity-focused assignment: Fill every seat possible while maintaining directional consistency
     """
-    print("🚗 Step 3: DIRECTIONAL capacity-focused driver assignment...")
+    logger.info("🚗 Step 3: DIRECTIONAL capacity-focused driver assignment...")
 
     routes = []
     assigned_user_ids = set()
@@ -263,7 +262,7 @@ def assign_drivers_by_priority_capacity_focused(user_df, driver_df, office_lat, 
                 assigned_ids_set = {u['user_id'] for u in route['assigned_users']}
                 all_unassigned_users = all_unassigned_users[~all_unassigned_users['user_id'].isin(assigned_ids_set)]
                 
-                print(f"  🧭 Driver {driver['driver_id']}: {len(route['assigned_users'])}/{vehicle_capacity} seats filled ({len(route['assigned_users'])/vehicle_capacity*100:.1f}%) - Directional")
+                logger.info(f"  🧭 Driver {driver['driver_id']}: {len(route['assigned_users'])}/{vehicle_capacity} seats filled ({len(route['assigned_users'])/vehicle_capacity*100:.1f}%) - Directional")
 
     # Second pass: Try to fill remaining seats with directional constraints
     remaining_users = all_unassigned_users[~all_unassigned_users['user_id'].isin(assigned_user_ids)]
@@ -333,16 +332,16 @@ def assign_drivers_by_priority_capacity_focused(user_df, driver_df, office_lat, 
             # Re-optimize route sequence
             route = optimize_route_sequence_improved(route, office_lat, office_lon)
             
-            print(f"  🎯 Route {route['driver_id']}: Added {len(users_to_add)} directional users, now {len(route['assigned_users'])}/{route['vehicle_type']} seats")
+            logger.info(f"  🎯 Route {route['driver_id']}: Added {len(users_to_add)} directional users, now {len(route['assigned_users'])}/{route['vehicle_type']} seats")
 
-    print(f"  ✅ DIRECTIONAL capacity assignment: {len(routes)} routes with directional seat filling")
+    logger.info(f"  ✅ DIRECTIONAL capacity assignment: {len(routes)} routes with directional seat filling")
     
     # Calculate and display utilization stats
     total_seats = sum(r['vehicle_type'] for r in routes)
     total_users = sum(len(r['assigned_users']) for r in routes)
     overall_utilization = (total_users / total_seats * 100) if total_seats > 0 else 0
     
-    print(f"  📊 Overall seat utilization: {total_users}/{total_seats} ({overall_utilization:.1f}%)")
+    logger.info(f"  📊 Overall seat utilization: {total_users}/{total_seats} ({overall_utilization:.1f}%)")
     
     return routes, assigned_user_ids
 
@@ -439,7 +438,7 @@ def assign_best_driver_to_cluster_capacity_focused(cluster_users, available_driv
         update_route_metrics_improved(route, office_lat, office_lon)
         
         utilization = len(route['assigned_users']) / route['vehicle_type']
-        print(f"    🚛 Assigned driver {best_driver['driver_id']}: {len(route['assigned_users'])}/{route['vehicle_type']} seats ({utilization*100:.1f}% utilization)")
+        logger.info(f"    🚛 Assigned driver {best_driver['driver_id']}: {len(route['assigned_users'])}/{route['vehicle_type']} seats ({utilization*100:.1f}% utilization)")
         
         return route
 
@@ -651,8 +650,8 @@ def run_assignment_capacity(source_id: str, parameter: int = 1, string_param: st
     MAX_BEARING_DIFFERENCE = _config['MAX_BEARING_DIFFERENCE']
     UTILIZATION_PENALTY_PER_SEAT = _config['UTILIZATION_PENALTY_PER_SEAT']
 
-    print(f"🚀 Starting CAPACITY OPTIMIZATION assignment for source_id: {source_id}")
-    print(f"📋 Parameter: {parameter}, String parameter: {string_param}")
+    logger.info(f"🚀 Starting CAPACITY OPTIMIZATION assignment for source_id: {source_id}")
+    logger.info(f"📋 Parameter: {parameter}, String parameter: {string_param}")
 
     try:
         # Load and validate data
@@ -661,7 +660,7 @@ def run_assignment_capacity(source_id: str, parameter: int = 1, string_param: st
         # Edge case handling
         users = data.get('users', [])
         if not users:
-            print("⚠️ No users found - returning empty assignment")
+            logger.warning("No users found - returning empty assignment")
             return {
                 "status": "true",
                 "execution_time": time.time() - start_time,
@@ -687,7 +686,7 @@ def run_assignment_capacity(source_id: str, parameter: int = 1, string_param: st
             all_drivers.extend(data.get("driversAssigned", []))
 
         if not all_drivers:
-            print("⚠️ No drivers available - all users unassigned")
+            logger.warning("No drivers available - all users unassigned")
             unassigned_users = _convert_users_to_unassigned_format(users)
             return {
                 "status": "true",
@@ -703,17 +702,17 @@ def run_assignment_capacity(source_id: str, parameter: int = 1, string_param: st
                 "parameter": parameter,
             }
 
-        print(f"📥 Data loaded - Users: {len(users)}, Total Drivers: {len(all_drivers)}")
+        logger.info(f"📥 Data loaded - Users: {len(users)}, Total Drivers: {len(all_drivers)}")
 
         # Extract office coordinates and validate data
         office_lat, office_lon = extract_office_coordinates(data)
         validate_input_data(data)
-        print("✅ Data validation passed")
+        logger.info("✅ Data validation passed")
 
         # Prepare dataframes
         user_df, driver_df = prepare_user_driver_dataframes(data)
         
-        print(f"📊 DataFrames prepared - Users: {len(user_df)}, Drivers: {len(driver_df)}")
+        logger.info(f"📊 DataFrames prepared - Users: {len(user_df)}, Drivers: {len(driver_df)}")
 
         # STEP 1: Geographic clustering (less strict for capacity mode)
         user_df = create_geographic_clusters(user_df, office_lat, office_lon, _config)
@@ -746,7 +745,7 @@ def run_assignment_capacity(source_id: str, parameter: int = 1, string_param: st
                 filtered_routes.append(route)
             else:
                 empty_route_driver_ids.add(route['driver_id'])
-                print(f"  📋 Moving driver {route['driver_id']} with no users to unassigned drivers")
+                logger.info(f"  📋 Moving driver {route['driver_id']} with no users to unassigned drivers")
         
         routes = filtered_routes
         
@@ -777,11 +776,11 @@ def run_assignment_capacity(source_id: str, parameter: int = 1, string_param: st
         users_unassigned = len(unassigned_users)
         users_accounted_for = users_assigned + users_unassigned
         
-        print(f"✅ Capacity optimization complete in {execution_time:.2f}s")
-        print(f"📊 Final routes: {len(routes)}")
-        print(f"🎯 Users assigned: {users_assigned}")
-        print(f"👥 Users unassigned: {users_unassigned}")
-        print(f"📋 User accounting: {users_accounted_for}/{total_users_in_api} users")
+        logger.info(f"✅ Capacity optimization complete in {execution_time:.2f}s")
+        logger.info(f"📊 Final routes: {len(routes)}")
+        logger.info(f"🎯 Users assigned: {users_assigned}")
+        logger.info(f"👥 Users unassigned: {users_unassigned}")
+        logger.info(f"📋 User accounting: {users_accounted_for}/{total_users_in_api} users")
 
         return {
             "status": "true",
@@ -809,7 +808,7 @@ def final_pass_merge_capacity_focused(routes, config, office_lat, office_lon):
     """
     DIRECTIONAL capacity-focused final-pass merge: Fill seats while maintaining directional consistency
     """
-    print("🔄 Step 6: DIRECTIONAL capacity-focused final-pass merge...")
+    logger.info("🔄 Step 6: DIRECTIONAL capacity-focused final-pass merge...")
 
     merged_routes = []
     used = set()
@@ -890,13 +889,13 @@ def final_pass_merge_capacity_focused(routes, config, office_lat, office_lon):
             used.add(j)
             
             utilization_pct = len(merged_route['assigned_users']) / merged_route['vehicle_type'] * 100
-            print(f"  🧭 DIRECTIONAL merge: routes {r1['driver_id']} + {routes[j]['driver_id']} = {len(merged_route['assigned_users'])}/{merged_route['vehicle_type']} seats ({utilization_pct:.1f}%)")
+            logger.info(f"  🧭 DIRECTIONAL merge: routes {r1['driver_id']} + {routes[j]['driver_id']} = {len(merged_route['assigned_users'])}/{merged_route['vehicle_type']} seats ({utilization_pct:.1f}%)")
         else:
             merged_routes.append(r1)
             used.add(i)
 
     # ADDITIONAL AGGRESSIVE PASS: Try to redistribute users to maximize overall utilization
-    print("  🎯 Additional seat-filling pass...")
+    logger.info("  🎯 Additional seat-filling pass...")
     
     # Sort routes by utilization (ascending) to fill up underutilized routes first
     merged_routes_with_util = []
@@ -956,8 +955,8 @@ def final_pass_merge_capacity_focused(routes, config, office_lat, office_lon):
                 merged_routes_with_util[i] = (new_util_low, route_low)
                 merged_routes_with_util[j] = (new_util_high, route_high)
                 
-                print(f"    🔄 Redistributed {users_moved} users: Route {route_high['driver_id']} → Route {route_low['driver_id']}")
-                print(f"       New utilizations: {new_util_low*100:.1f}%, {new_util_high*100:.1f}%")
+                logger.info(f"    🔄 Redistributed {users_moved} users: Route {route_high['driver_id']} → Route {route_low['driver_id']}")
+                logger.info(f"       New utilizations: {new_util_low*100:.1f}%, {new_util_high*100:.1f}%")
                 
                 if available_seats <= 0:
                     break
@@ -970,7 +969,7 @@ def final_pass_merge_capacity_focused(routes, config, office_lat, office_lon):
     total_users = sum(len(r['assigned_users']) for r in final_routes)
     overall_utilization = (total_users / total_seats * 100) if total_seats > 0 else 0
     
-    print(f"  🎯 DIRECTIONAL capacity merge complete: {len(routes)} → {len(final_routes)} routes")
-    print(f"  🧭 Final directional seat utilization: {total_users}/{total_seats} ({overall_utilization:.1f}%)")
+    logger.info(f"  🎯 DIRECTIONAL capacity merge complete: {len(routes)} → {len(final_routes)} routes")
+    logger.info(f"  🧭 Final directional seat utilization: {total_users}/{total_seats} ({overall_utilization:.1f}%)")
     
     return final_routes
