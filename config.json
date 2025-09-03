@@ -2,6 +2,27 @@
   "optimization_mode": "route_efficiency",
   "max_fill_distance_km": 4.0,
   "merge_distance_km": 2.5,
+  "road_network": {
+    "max_search_radius_km": 5.0,
+    "fallback_search_radius_km": 10.0,
+    "max_detour_ratio": 3.0,
+    "cache_size_limit": 50000,
+    "cache_cleanup_threshold": 40000,
+    "coherence_weights": {
+      "directional_penalty": 0.3,
+      "backtrack_penalty": 0.4,
+      "corridor_bonus": 0.2,
+      "sequence_penalty": 0.1
+    },
+    "distance_validation": {
+      "max_reasonable_ratio": 5.0,
+      "min_road_efficiency": 0.1
+    },
+    "projection": {
+      "tile_size_degrees": 1.0,
+      "use_adaptive_projection": true
+    }
+  },
   "dbscan_eps_km": 1.2,
   "min_samples_dbscan": 2,
   "max_bearing_difference": 15,
@@ -22,7 +43,7 @@
   "min_cluster_size": 2,
   "use_sweep_algorithm": true,
   "angular_sectors": 12,
-  "max_users_per_initial_cluster": 6,
+  "max_users_for_initial_cluster": 6,
   "max_users_per_cluster": 5,
   "zigzag_penalty_weight": 4.0,
   "route_split_turning_threshold": 25,
