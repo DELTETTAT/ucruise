@@ -56,7 +56,7 @@
   "angular_sectors": 12,
   "max_users_for_initial_cluster": 6,
   "max_users_per_cluster": 5,
-  "zigzag_penalty_weight": 4.0,
+  "zigzag_penalty_weight": 0.5,
   "route_split_turning_threshold": 25,
   "max_tortuosity_ratio": 1.2,
   "route_split_consistency_threshold": 0.8,
