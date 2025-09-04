@@ -4,51 +4,28 @@ import time
 import webbrowser
 import sys
 import argparse
+import os
+import json
 from assignment import run_assignment, analyze_assignment_quality
 
 SOURCE_ID = "UC_unify_dev"  # <-- Replace with your real source_id
 PARAMETER = 1  # Example numerical parameter
 STRING_PARAM = "Evening%20shift" # Example string parameter
 
-def get_user_choice():
-    """Get user's choice for assignment algorithm"""
+def detect_algorithm_from_api():
+    """Detect which algorithm to use based on API response"""
     print("\n🚗 ROUTEFLOW - INTELLIGENT ASSIGNMENT SYSTEM")
     print("=" * 60)
-    print("Please select which assignment algorithm to run:")
+    print("🤖 Automatic algorithm detection based on ride_settings from API")
     print()
-    print("1. 🎯 ROUTE EFFICIENCY (assignment.py)")
-    print("   - Prioritizes compact routes with minimal zigzag")
-    print("   - Strict quality control for route turning")
-    print("   - Best for: Short, direct routes")
+    print("Algorithm Mapping:")
+    print("   Priority 1 → 🎪 CAPACITY OPTIMIZATION (assign_capacity.py)")
+    print("   Priority 2 → ⚖️ BALANCED OPTIMIZATION (assign_balance.py)")
+    print("   Priority 3 → 🗺️ ROAD-AWARE ROUTING (assign_route.py)")
+    print("   Default   → 🎯 ROUTE EFFICIENCY (assignment.py)")
     print()
-    print("2. 🎪 CAPACITY OPTIMIZATION (assign_capacity.py)")
-    print("   - Prioritizes seat filling over route efficiency")
-    print("   - Allows zigzag routes for maximum capacity")
-    print("   - Best for: High utilization scenarios")
-    print()
-    print("3. ⚖️  BALANCED OPTIMIZATION (assign_balance.py)")
-    print("   - Balances route efficiency and capacity utilization")
-    print("   - Moderate constraints on both aspects")
-    print("   - Best for: General purpose optimization")
-    print()
-    print("4. 🗺️  ROAD-AWARE ROUTING (assign_route.py)")
-    print("   - Uses actual road network data for routing")
-    print("   - Considers real road paths and conditions")
-    print("   - Best for: Real-world accurate routing")
-    print()
-
-    while True:
-        try:
-            choice = input("Enter your choice (1, 2, 3, or 4): ").strip()
-            if choice in ['1', '2', '3', '4']:
-                return int(choice)
-            else:
-                print("❌ Please enter 1, 2, 3, or 4")
-        except (ValueError, KeyboardInterrupt):
-            from logger_config import get_logger
-            logger = get_logger()
-            logger.info("Operation cancelled by user")
-            exit(0)
+    
+    return True  # Always proceed with automatic detection
 
 def start_fastapi():
     subprocess.run(["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "3000", "--reload"])
@@ -366,64 +343,79 @@ def haversine_distance(lat1, lon1, lat2, lon2):
 
     return c * r
 
+def load_assignment_result():
+    """Load assignment result from file or run new assignment"""
+    # Delete ALL cached files to force fresh assignment with latest code
+    cache_files = [
+        "drivers_and_routes.json",
+        "drivers_and_routes_capacity.json", 
+        "drivers_and_routes_balance.json",
+        "drivers_and_routes_road_aware.json"
+    ]
+    
+    for cache_file in cache_files:
+        if os.path.exists(cache_file):
+            os.remove(cache_file)
+            print(f"Deleted cached file: {cache_file}")
+    
+    print("All cached routes deleted to use latest code changes...")
+
+    # Run fresh assignment with correct source ID
+    return run_assignment(SOURCE_ID, PARAMETER, STRING_PARAM)
+
 if __name__ == "__main__":
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Driver Assignment Dashboard')
-    parser.add_argument('--mode', type=int, choices=[1, 2, 3, 4], 
+    parser.add_argument('--mode', type=int, choices=[1, 2, 3, 4],
                        help='Assignment mode: 1=Route Efficiency, 2=Capacity Optimization, 3=Balanced, 4=Road-Aware')
     args = parser.parse_args()
+
+    # Clear logs at the start
+    from logger_config import clear_logs
+    clear_logs()
 
     print("🚀 Starting Driver Assignment Dashboard...")
     print(f"📍 Source ID: {SOURCE_ID}")
 
     try:
-        # Get user's choice (from command line or interactive)
+        # Use automatic algorithm detection (no user choice needed)
         if args.mode:
-            choice = args.mode
-            mode_names = {1: "ROUTE EFFICIENCY", 2: "CAPACITY OPTIMIZATION", 3: "BALANCED OPTIMIZATION", 4: "ROAD-AWARE ROUTING"}
-            print(f"🎯 Using command line mode: {mode_names[choice]}")
-        else:
-            choice = get_user_choice()
-
+            mode_names = {1: "CAPACITY OPTIMIZATION", 2: "BALANCED OPTIMIZATION", 3: "ROAD-AWARE ROUTING", 4: "ROUTE EFFICIENCY"}
+            print(f"⚠️ Command line mode {args.mode} ignored - using automatic detection from API")
+        
+        detect_algorithm_from_api()
         print("-" * 50)
 
-        # Import the selected assignment function
-        if choice == 1:
-            from assignment import run_assignment
-            assignment_func = run_assignment
-            algorithm_name = "ROUTE EFFICIENCY"
-            output_file = "drivers_and_routes.json"
-        elif choice == 2:
-            from assign_capacity import run_assignment_capacity
-            assignment_func = run_assignment_capacity
-            algorithm_name = "CAPACITY OPTIMIZATION"
-            output_file = "drivers_and_routes_capacity.json"
-        elif choice == 3:
-            from assign_balance import run_assignment_balance
-            assignment_func = run_assignment_balance
-            algorithm_name = "BALANCED OPTIMIZATION"
-            output_file = "drivers_and_routes_balance.json"
-        else:  # choice == 4
-            from assign_route import run_road_aware_assignment
-            assignment_func = run_road_aware_assignment
-            algorithm_name = "ROAD-AWARE ROUTING"
-            output_file = "drivers_and_routes_road_aware.json"
-
-        print(f"⏳ Running {algorithm_name} assignment algorithm...")
+        # Use the main assignment function which will automatically route to the correct algorithm
+        from assignment import run_assignment
+        assignment_func = run_assignment
+        
+        # Delete all cached files before running assignment
+        cache_files = [
+            "drivers_and_routes.json",
+            "drivers_and_routes_capacity.json", 
+            "drivers_and_routes_balance.json",
+            "drivers_and_routes_road_aware.json"
+        ]
+        
+        for cache_file in cache_files:
+            if os.path.exists(cache_file):
+                os.remove(cache_file)
+        
+        print(f"⏳ Running assignment with automatic algorithm detection...")
         result = assignment_func(SOURCE_ID, PARAMETER, STRING_PARAM)
 
         if result["status"] == "true":
+            # Get the algorithm name from the result
+            algorithm_name = result.get("optimization_mode", "AUTO-DETECTED ALGORITHM")
+            algorithm_name = algorithm_name.replace("_", " ").upper()
+            
             print(f"✅ {algorithm_name} assignment completed successfully!")
 
-            # Save results
-            import json
-            with open(output_file, "w") as f:
-                json.dump(result["data"], f, indent=2)
-            print(f"💾 Results saved to {output_file}")
-
-            # Also save to the default filename for visualization compatibility
+            # Save results to default file for visualization compatibility
             with open("drivers_and_routes.json", "w") as f:
                 json.dump(result["data"], f, indent=2)
+            print(f"💾 Results saved to drivers_and_routes.json")
 
             # Display detailed analytics
             display_detailed_analytics(result, algorithm_name)

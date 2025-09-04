@@ -374,7 +374,7 @@ def assign_best_driver_to_cluster_capacity_focused(cluster_users, available_driv
         route_cost, sequence, mean_turning_degrees = calculate_route_cost_capacity_focused(
             driver, cluster_users, office_lat, office_lon
         )
-        distance_penalty = route_cost * 0.1  # Very small distance impact
+        distance_penalty = route_cost * 0.1  # Very small impact
 
         # Priority bonus (prefer higher priority drivers but with small impact)
         priority_bonus = (5 - driver['priority']) * 0.1  # Small priority preference
@@ -638,6 +638,18 @@ def run_assignment_capacity(source_id: str, parameter: int = 1, string_param: st
     - Maximizes utilization across all vehicles
     """
     start_time = time.time()
+
+    # Clear any cached data files to ensure fresh assignment
+    cache_files = [
+        "drivers_and_routes.json",
+        "drivers_and_routes_capacity.json", 
+        "drivers_and_routes_balance.json",
+        "drivers_and_routes_road_aware.json"
+    ]
+
+    for cache_file in cache_files:
+        if os.path.exists(cache_file):
+            os.remove(cache_file)
 
     # Reload configuration for capacity optimization
     global _config

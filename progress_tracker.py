@@ -1,4 +1,3 @@
-
 import sys
 import time
 from datetime import datetime
@@ -18,15 +17,20 @@ class ProgressTracker:
         ]
         self.current_stage_index = 0
         self.stage_details = {}
+        self.assignment_started = False # Added to track if assignment has started
         
     def start_assignment(self, source_id, mode):
         self.start_time = datetime.now()
+        self.assignment_started = True # Set to True when assignment starts
         print(f"\n🚀 Starting {mode} Assignment")
         print(f"📋 Source ID: {source_id}")
         print(f"⏰ Started at: {self.start_time.strftime('%H:%M:%S')}")
         print("="*60)
     
     def start_stage(self, stage_name, details=""):
+        if not self.assignment_started: # Check if assignment has started
+            return
+            
         self.current_stage = stage_name
         if stage_name in self.stages:
             self.current_stage_index = self.stages.index(stage_name) + 1
@@ -48,49 +52,57 @@ class ProgressTracker:
         }
     
     def update_stage_progress(self, message):
+        if not self.assignment_started: # Check if assignment has started
+            return
+
         elapsed = datetime.now() - self.stage_details.get(self.current_stage, {}).get('start_time', datetime.now())
         print(f"   ⏳ {message} (Elapsed: {elapsed.total_seconds():.1f}s)")
     
     def complete_stage(self, summary):
+        if not self.assignment_started: # Check if assignment has started
+            return
+
         if self.current_stage in self.stage_details:
             elapsed = datetime.now() - self.stage_details[self.current_stage]['start_time']
             print(f"   ✅ {summary} (Completed in {elapsed.total_seconds():.1f}s)")
     
     def show_final_summary(self, result):
-        total_time = datetime.now() - self.start_time
-        
-        print("\n" + "="*60)
-        print("🎯 ASSIGNMENT COMPLETED")
-        print(f"⏱️  Total Time: {total_time.total_seconds():.1f} seconds")
-        
-        if result.get("status") == "true":
-            routes = result.get("data", [])
-            unassigned_users = result.get("unassignedUsers", [])
-            unassigned_drivers = result.get("unassignedDrivers", [])
-            
-            total_users = sum(len(r.get('assigned_users', [])) for r in routes) + len(unassigned_users)
-            total_assigned = sum(len(r.get('assigned_users', [])) for r in routes)
-            total_routes = len(routes)
-            
-            print(f"📈 Routes Created: {total_routes}")
-            print(f"👥 Users Assigned: {total_assigned}/{total_users}")
-            print(f"🚗 Drivers Used: {len(routes)}")
-            
-            if unassigned_users:
-                print(f"⚠️  Unassigned Users: {len(unassigned_users)}")
-            if unassigned_drivers:
-                print(f"⚠️  Unused Drivers: {len(unassigned_drivers)}")
-            
-            # Calculate utilization
-            total_capacity = sum(r.get('vehicle_type', 0) for r in routes)
-            utilization = (total_assigned / total_capacity * 100) if total_capacity > 0 else 0
-            print(f"📊 Overall Utilization: {utilization:.1f}%")
-            
-        else:
-            print(f"❌ Assignment Failed: {result.get('details', 'Unknown error')}")
-        
-        print("="*60)
-        print(f"📄 Detailed logs saved in logs/assignment_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
+        """Show final summary of assignment"""
+        if not self.assignment_started:
+            return
+
+        routes = result.get("data", [])
+        unassigned_users = result.get("unassignedUsers", [])
+        total_assigned = sum(len(route.get("assigned_users", [])) for route in routes)
+
+        print(f"\n{'='*60}")
+        print(f"🎯 ASSIGNMENT COMPLETED SUCCESSFULLY")
+        print(f"{'='*60}")
+        print(f"📊 Routes Created: {len(routes)}")
+        print(f"👥 Users Assigned: {total_assigned}")
+        print(f"⚠️  Users Unassigned: {len(unassigned_users)}")
+        print(f"⏰ Total Time: {result.get('execution_time', 0):.1f}s")
+        print(f"🎪 Algorithm: {result.get('optimization_mode', 'Unknown').upper()}")
+        print(f"{'='*60}")
+
+        self.assignment_started = False
+
+    def fail_assignment(self, error_message):
+        """Handle assignment failure"""
+        if not self.assignment_started:
+            return
+
+        print(f"\n{'='*60}")
+        print(f"❌ ASSIGNMENT FAILED")
+        print(f"{'='*60}")
+        print(f"🚫 Error: {error_message}")
+        # Assuming start_time is correctly set in start_assignment
+        current_time = datetime.now()
+        elapsed_time = current_time - self.start_time if self.start_time else 0
+        print(f"⏰ Failed after: {elapsed_time.total_seconds():.1f}s")
+        print(f"{'='*60}")
+
+        self.assignment_started = False
 
 # Global progress tracker
 progress_tracker = ProgressTracker()

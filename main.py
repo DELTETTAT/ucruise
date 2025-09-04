@@ -27,6 +27,7 @@ def health_check():
 @app.post("/assign-drivers/{source_id}/{parameter}/{string_param}")
 def assign_drivers(source_id: str, parameter: int, string_param: str):
     try:
+        # The run_assignment function now automatically detects and routes to the correct algorithm
         result = run_assignment(source_id, parameter, string_param)
 
         if result["status"] == "true":

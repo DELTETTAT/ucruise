@@ -2,6 +2,26 @@ import logging
 import os
 from datetime import datetime
 import json
+import glob
+
+def clear_logs(log_dir="logs"):
+    """Clear all existing log files before starting a new session"""
+    if os.path.exists(log_dir):
+        log_files = glob.glob(os.path.join(log_dir, "assignment_*.log"))
+        removed_count = 0
+        for log_file in log_files:
+            try:
+                os.remove(log_file)
+                removed_count += 1
+            except OSError as e:
+                print(f"Warning: Could not remove {log_file}: {e}")
+
+        if removed_count > 0:
+            print(f"🧹 Cleared {removed_count} old log files from {log_dir}/")
+        else:
+            print(f"📂 No existing log files found in {log_dir}/")
+    else:
+        print(f"📂 Log directory {log_dir}/ doesn't exist yet")
 
 class RouteAssignmentLogger:
     def __init__(self, log_dir="logs"):
@@ -74,7 +94,7 @@ class RouteAssignmentLogger:
         self.logger.info(f"ROUTE CREATED - Driver: {driver_id}, Users: {len(users)}")
         self.logger.info(f"Creation reason: {reason}")
         for user in users:
-            self.logger.debug(f"  User {user.get('user_id', 'N/A')} at ({user.get('lat', 'N/A')}, {user.get('lng', 'N/A')})")
+            self.logger.debug(f"  User {user.get('user_id', 'N/A')}")
         self.logger.debug(f"Quality metrics: {quality_metrics}")
 
     def log_route_rejection(self, driver_id, users, reason):
@@ -118,7 +138,7 @@ class RouteAssignmentLogger:
         if unassigned_users:
             self.logger.warning(f"UNASSIGNED USERS ANALYSIS ({len(unassigned_users)} users):")
             for user in unassigned_users:
-                self.logger.warning(f"  User {user.get('user_id', 'N/A')} at ({user.get('lat', 'N/A')}, {user.get('lng', 'N/A')})")
+                self.logger.warning(f"  User {user.get('user_id', 'N/A')}")
 
         if unused_drivers:
             self.logger.warning(f"UNUSED DRIVERS ANALYSIS ({len(unused_drivers)} drivers):")
@@ -127,16 +147,29 @@ class RouteAssignmentLogger:
 
         self.logger.info("="*80)
 
-    def log_accounting_check(self, api_users, final_assigned, final_unassigned, discrepancy):
+    def log_accounting_check(self, total_api_users, final_assigned, final_unassigned, discrepancy):
+        """Log comprehensive user accounting check"""
         self.logger.critical("USER ACCOUNTING CHECK")
-        self.logger.critical(f"API Users: {api_users}")
+        self.logger.critical(f"API Users: {total_api_users}")
         self.logger.critical(f"Final Assigned: {final_assigned}")
-        self.logger.critical(f"Final Unassigned: {final_unassigned}")
-        self.logger.critical(f"Total Accounted: {final_assigned + final_unassigned}")
-        if discrepancy:
-            self.logger.critical(f"DISCREPANCY DETECTED: {discrepancy} users missing!")
+
+        # Handle final_unassigned as either int (count) or list (actual users)
+        if isinstance(final_unassigned, list):
+            unassigned_count = len(final_unassigned)
+            self.logger.critical(f"Final Unassigned: {unassigned_count}")
+            total_accounted = final_assigned + unassigned_count
         else:
-            self.logger.info("User accounting is correct")
+            unassigned_count = final_unassigned
+            self.logger.critical(f"Final Unassigned: {unassigned_count}")
+            total_accounted = final_assigned + unassigned_count
+
+        self.logger.critical(f"Total Accounted: {total_accounted}")
+        self.logger.critical(f"Discrepancy: {discrepancy}")
+
+        if discrepancy != 0:
+            self.logger.critical(f"WARNING: {discrepancy} users unaccounted for!")
+        else:
+            self.logger.critical("✅ User accounting verified")
 
     def log_route_verification(self, routes):
         """Log detailed route verification for debugging map mismatches"""
@@ -209,11 +242,11 @@ def get_logger():
 def reset_logger():
     """Reset logger for new session - only if not in an active session"""
     global route_logger, current_session_id
-    
+
     # Don't reset if we're in the middle of a session
     if current_session_id is not None:
         return route_logger
-    
+
     if route_logger is not None:
         # Close existing handlers before resetting
         for handler in route_logger.logger.handlers[:]:
@@ -225,6 +258,10 @@ def reset_logger():
 def start_session():
     """Start a new logging session"""
     global current_session_id
+
+    # Clear old logs before starting new session
+    clear_logs()
+
     current_session_id = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
     return get_logger()
 

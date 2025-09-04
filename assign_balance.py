@@ -40,7 +40,7 @@ def load_and_validate_config():
     mode_config = mode_configs.get("balanced_optimization", {})
 
     logger.info(f"🎯 Using optimization mode: BALANCED OPTIMIZATION")
-    
+
     # Validate and set configuration with mode-specific overrides (between route_efficiency and capacity)
     config = {}
 
@@ -105,7 +105,7 @@ def load_and_validate_config():
     config['max_tortuosity_ratio'] = cfg.get('max_tortuosity_ratio', 1.5)
     config['route_split_consistency_threshold'] = cfg.get('route_split_consistency_threshold', 0.6)
     config['merge_tortuosity_improvement_required'] = cfg.get('merge_tortuosity_improvement_required', None)
-    
+
     # Latitude conversion factor for distance normalization
     config['LAT_TO_KM'] = 111.0
     config['LON_TO_KM'] = 111.0 * math.cos(math.radians(office_lat))
@@ -140,7 +140,7 @@ from assignment import (
     split_by_distance_clusters_improved, create_split_routes_improved, find_best_driver_for_group, 
     outlier_detection_and_reassignment, try_reassign_outlier, handle_remaining_users_improved, 
     find_best_driver_for_cluster_improved, calculate_combined_route_center, _get_all_drivers_as_unassigned, 
-    _convert_users_to_unassigned_format, analyze_assignment_quality
+    _convert_users_to_unassigned_format, analyze_assignment_quality, get_progress_tracker
 )
 
 # Load validated configuration - always balanced optimization
@@ -188,37 +188,37 @@ def assign_drivers_by_priority_balanced(user_df, driver_df, office_lat, office_l
 
         vehicle_capacity = int(driver['capacity'])
         driver_pos = (driver['latitude'], driver['longitude'])
-        
+
         # Calculate main route bearing
         main_route_bearing = calculate_bearing(office_lat, office_lon, driver['latitude'], driver['longitude'])
-        
+
         # Find users with balanced distance/direction constraints
         users_for_vehicle = []
         max_distance_limit = MAX_FILL_DISTANCE_KM * 1.5  # Between strict efficiency and lenient capacity
         max_bearing_deviation = 37  # Between 20° (efficiency) and 45° (capacity)
-        
+
         # Collect candidate users with balanced scoring
         candidate_users = []
         for _, user in all_unassigned_users.iterrows():
             distance = haversine_distance(driver['latitude'], driver['longitude'], 
                                         user['latitude'], user['longitude'])
-            
+
             office_to_user_bearing = calculate_bearing(office_lat, office_lon, 
                                                      user['latitude'], user['longitude'])
-            
+
             bearing_diff_from_main = bearing_difference(main_route_bearing, office_to_user_bearing)
-            
+
             # Balanced acceptance criteria
             if (distance <= max_distance_limit and 
                 bearing_diff_from_main <= max_bearing_deviation):
                 # Balanced score: equal weight to distance and direction
                 score = distance * 0.5 + bearing_diff_from_main * 0.1  # 0.1 km per degree
                 candidate_users.append((score, user))
-        
+
         # Sort by balanced score and fill to 85% capacity (balanced target)
         candidate_users.sort(key=lambda x: x[0])
         target_capacity = min(vehicle_capacity, max(2, int(vehicle_capacity * 0.85)))
-        
+
         for score, user in candidate_users:
             if len(users_for_vehicle) >= target_capacity:
                 break
@@ -229,53 +229,83 @@ def assign_drivers_by_priority_balanced(user_df, driver_df, office_lat, office_l
             cluster_df = pd.DataFrame(users_for_vehicle)
             route = assign_best_driver_to_cluster_balanced(
                 cluster_df, pd.DataFrame([driver]), used_driver_ids, office_lat, office_lon)
-            
+
             if route:
                 routes.append(route)
                 assigned_user_ids.update(u['user_id'] for u in route['assigned_users'])
-                
+
+                # Log detailed route creation
+                quality_metrics = {
+                    'utilization': len(route['assigned_users']) / vehicle_capacity,
+                    'vehicle_capacity': vehicle_capacity,
+                    'optimization_mode': 'balanced',
+                    'directional_consistency': True
+                }
+
+                logger.log_route_creation(
+                    driver['driver_id'],
+                    route['assigned_users'],
+                    f"Balanced optimization with {len(route['assigned_users'])} users",
+                    quality_metrics
+                )
+
+                # Log each user assignment
+                for user in route['assigned_users']:
+                    logger.log_user_assignment(
+                        user['user_id'],
+                        driver['driver_id'],
+                        {
+                            'pickup_order': route['assigned_users'].index(user) + 1,
+                            'distance_from_driver': haversine_distance(
+                                route['latitude'], route['longitude'],
+                                user['lat'], user['lng']
+                            ),
+                            'optimization_mode': 'balanced'
+                        }
+                    )
+
                 # Remove assigned users from pool
                 assigned_ids_set = {u['user_id'] for u in route['assigned_users']}
                 all_unassigned_users = all_unassigned_users[~all_unassigned_users['user_id'].isin(assigned_ids_set)]
-                
+
                 utilization = len(route['assigned_users']) / vehicle_capacity * 100
                 logger.info(f"  ⚖️ Driver {driver['driver_id']}: {len(route['assigned_users'])}/{vehicle_capacity} seats ({utilization:.1f}%) - Balanced")
 
     # Second pass: Fill remaining seats with slightly more lenient constraints
     remaining_users = all_unassigned_users[~all_unassigned_users['user_id'].isin(assigned_user_ids)]
-    
+
     for route in routes:
         if remaining_users.empty:
             break
-            
+
         available_seats = route['vehicle_type'] - len(route['assigned_users'])
         if available_seats <= 0:
             continue
-        
+
         # Balanced seat filling
         route_bearing = calculate_average_bearing_improved(route, office_lat, office_lon)
         route_center = calculate_route_center_improved(route)
-        
+
         compatible_users = []
         for _, user in remaining_users.iterrows():
             distance = haversine_distance(route_center[0], route_center[1],
                                         user['latitude'], user['longitude'])
-            
+
             user_bearing = calculate_bearing(office_lat, office_lon, user['latitude'], user['longitude'])
             bearing_diff = bearing_difference(route_bearing, user_bearing)
-            
+
             # Balanced criteria for seat filling
             if distance <= MAX_FILL_DISTANCE_KM * 1.8 and bearing_diff <= 40:
                 score = distance * 0.6 + bearing_diff * 0.08  # Slightly favor distance
                 compatible_users.append((score, user))
-        
+
         # Fill available seats
         compatible_users.sort(key=lambda x: x[0])
         users_to_add = []
-        
+
         for score, user in compatible_users[:available_seats]:
             users_to_add.append(user)
-        
+
         # Add users to route
         for user in users_to_add:
             user_data = {
@@ -288,27 +318,27 @@ def assign_drivers_by_priority_balanced(user_df, driver_df, office_lat, office_l
                 user_data['first_name'] = str(user['first_name'])
             if pd.notna(user.get('email')):
                 user_data['email'] = str(user['email'])
-            
+
             route['assigned_users'].append(user_data)
             assigned_user_ids.add(user['user_id'])
-        
+
         if users_to_add:
             assigned_ids = {u['user_id'] for u in users_to_add}
             remaining_users = remaining_users[~remaining_users['user_id'].isin(assigned_ids)]
-            
+
             route = optimize_route_sequence_improved(route, office_lat, office_lon)
             utilization = len(route['assigned_users']) / route['vehicle_type'] * 100
             logger.info(f"  ⚖️ Route {route['driver_id']}: Added {len(users_to_add)} users, now {len(route['assigned_users'])}/{route['vehicle_type']} ({utilization:.1f}%)")
 
     logger.info(f"  ✅ Balanced assignment: {len(routes)} routes with true 50/50 balance")
-    
+
     # Calculate balanced metrics
     total_seats = sum(r['vehicle_type'] for r in routes)
     total_users = sum(len(r['assigned_users']) for r in routes)
     overall_utilization = (total_users / total_seats * 100) if total_seats > 0 else 0
-    
+
     logger.info(f"  ⚖️ Balanced utilization: {total_users}/{total_seats} ({overall_utilization:.1f}%)")
-    
+
     return routes, assigned_user_ids
 
 
@@ -339,23 +369,23 @@ def assign_best_driver_to_cluster_balanced(cluster_users, available_drivers, use
 
         # Balanced scoring approach
         utilization = cluster_size / driver['capacity']
-        
+
         # Distance component (efficiency factor)
         distance_score = route_cost * 0.5  # 50% weight on distance
-        
+
         # Direction component (efficiency factor)
         direction_score = mean_turning_degrees * direction_weight * 0.02  # 50% weight on direction
-        
+
         # Capacity component (capacity factor) - inverted to prefer higher utilization
         capacity_score = (1.0 - utilization) * capacity_weight * 5.0  # 50% weight on capacity (penalty for underutilization)
-        
+
         # Priority component (small tiebreaker)
         priority_score = driver['priority'] * 0.2
-        
+
         # Balanced total score: equal emphasis on efficiency (distance + direction) and capacity
         efficiency_component = distance_score + direction_score  # Route efficiency
         capacity_component = capacity_score  # Capacity utilization
-        
+
         total_score = efficiency_component + capacity_component + priority_score
 
         if total_score < best_score:
@@ -399,10 +429,10 @@ def assign_best_driver_to_cluster_balanced(cluster_users, available_drivers, use
         # Balanced optimization of sequence
         route = optimize_route_sequence_improved(route, office_lat, office_lon)
         update_route_metrics_improved(route, office_lat, office_lon)
-        
+
         utilization = len(route['assigned_users']) / route['vehicle_type']
         logger.info(f"    ⚖️ Balanced assignment - Driver {best_driver['driver_id']}: {len(route['assigned_users'])}/{route['vehicle_type']} seats ({utilization*100:.1f}%)")
-        
+
         return route
 
     return None
@@ -486,30 +516,30 @@ def calculate_optimal_sequence_balanced(driver_pos, cluster_users, office_pos):
         # Distance component (50%)
         distance = haversine_distance(driver_pos[0], driver_pos[1], 
                                     user['latitude'], user['longitude'])
-        
+
         # Direction component (50%)
         user_bearing = calculate_bearing(driver_pos[0], driver_pos[1], 
                                        user['latitude'], user['longitude'])
-        
+
         bearing_diff = normalize_bearing_difference(user_bearing - main_route_bearing)
         bearing_diff_rad = math.radians(abs(bearing_diff))
-        
+
         # Equal weight to distance and bearing alignment
         distance_score = distance  # Raw distance
         direction_score = distance * (1 - math.cos(bearing_diff_rad))  # Direction penalty in distance units
-        
+
         # TRUE 50/50 balance
         combined_score = distance_score * 0.5 + direction_score * 0.5
-        
+
         return (combined_score, user['user_id'])
 
     users_list.sort(key=true_balanced_score)
 
     # Apply truly balanced 2-opt optimization
-    return apply_balanced_2opt(users_list, driver_pos, office_pos, main_bearing)
+    return apply_balanced_2opt(users_list, driver_pos, office_pos)
 
 
-def apply_balanced_2opt(sequence, driver_pos, office_pos, main_bearing):
+def apply_balanced_2opt(sequence, driver_pos, office_pos):
     """Apply TRUE balanced 2-opt improvements - equal weight to distance and direction"""
     if len(sequence) <= 2:
         return sequence
@@ -517,17 +547,20 @@ def apply_balanced_2opt(sequence, driver_pos, office_pos, main_bearing):
     improved = True
     max_iterations = 3
     iteration = 0
-    
+
+    # Calculate main bearing from driver to office
+    main_bearing = calculate_bearing(driver_pos[0], driver_pos[1], office_pos[0], office_pos[1])
+
     # Balanced turning angle threshold (exactly between efficiency and capacity)
     max_turning_threshold = 47  # Between 35° (efficiency) and 60° (capacity)
 
     while improved and iteration < max_iterations:
         improved = False
         iteration += 1
-        
+
         best_distance = calculate_sequence_distance(sequence, driver_pos, office_pos)
         best_turning_score = calculate_sequence_turning_score_improved(sequence, driver_pos, office_pos)
-        
+
         for i in range(len(sequence) - 1):
             for j in range(i + 2, len(sequence)):
                 # Try 2-opt swap
@@ -536,21 +569,21 @@ def apply_balanced_2opt(sequence, driver_pos, office_pos, main_bearing):
                 # Calculate new metrics
                 new_distance = calculate_sequence_distance(new_sequence, driver_pos, office_pos)
                 new_turning_score = calculate_sequence_turning_score_improved(new_sequence, driver_pos, office_pos)
-                
+
                 # TRUE balanced acceptance criteria - equal weight to both factors
                 distance_improvement = (best_distance - new_distance) / best_distance  # Normalized improvement
                 turning_improvement = (best_turning_score - new_turning_score)  # Absolute improvement
-                
+
                 # Convert turning improvement to same scale as distance (percentage)
                 turning_improvement_normalized = turning_improvement / max(best_turning_score, 1.0)
-                
+
                 # Equal weight to both improvements
                 combined_improvement = distance_improvement * 0.5 + turning_improvement_normalized * 0.5
-                
+
                 # Accept if combined improvement is positive and turning stays reasonable
                 if (combined_improvement > 0.005 and  # Small positive improvement
                     new_turning_score <= max_turning_threshold):
-                    
+
                     sequence = new_sequence
                     best_distance = new_distance
                     best_turning_score = new_turning_score
@@ -570,7 +603,7 @@ def final_pass_merge_balanced(routes, config, office_lat, office_lon):
 
     merged_routes = []
     used = set()
-    
+
     # Balanced thresholds (exactly between route efficiency and capacity)
     MERGE_BEARING_THRESHOLD = 32  # Between 20° (efficiency) and 45° (capacity)
     MERGE_DISTANCE_KM = config.get("MERGE_DISTANCE_KM", 3.5) * 1.4  # Between 3.0 and 5.0
@@ -651,7 +684,7 @@ def final_pass_merge_balanced(routes, config, office_lat, office_lon):
                 # TRUE balanced scoring: 50% efficiency, 50% capacity
                 efficiency_score = turning_score * 0.5 + (tortuosity - 1.0) * 20  # Route quality
                 capacity_score = (1.0 - utilization) * 100  # Underutilization penalty
-                
+
                 # Equal weight to both components
                 balanced_score = efficiency_score * 0.5 + capacity_score * 0.5
 
@@ -664,7 +697,7 @@ def final_pass_merge_balanced(routes, config, office_lat, office_lon):
             merged_routes.append(merged_route)
             used.add(i)
             used.add(j)
-            
+
             utilization_pct = len(merged_route['assigned_users']) / merged_route['vehicle_type'] * 100
             turning = merged_route.get('turning_score', 0)
             logger.info(f"  ⚖️ Balanced merge: {r1['driver_id']} + {routes[j]['driver_id']} = {len(merged_route['assigned_users'])}/{merged_route['vehicle_type']} seats ({utilization_pct:.1f}%, {turning:.1f}° turn)")
@@ -674,18 +707,18 @@ def final_pass_merge_balanced(routes, config, office_lat, office_lon):
 
     # Additional balanced optimization pass
     logger.info("  ⚖️ Additional balanced optimization pass...")
-    
+
     # Try to redistribute for better overall balance
     optimization_made = True
     while optimization_made:
         optimization_made = False
-        
+
         # Sort routes by efficiency score for balancing
         routes_with_scores = []
         for route in merged_routes:
             utilization = len(route['assigned_users']) / route['vehicle_type']
             efficiency = route.get('turning_score', 0)
-            
+
             # Look for opportunities to balance
             if utilization < 0.7 and efficiency < 35:  # Good efficiency, poor capacity
                 routes_with_scores.append(('low_util', route))
@@ -693,16 +726,16 @@ def final_pass_merge_balanced(routes, config, office_lat, office_lon):
                 routes_with_scores.append(('high_util', route))
             else:
                 routes_with_scores.append(('balanced', route))
-        
+
         # Try to swap users between unbalanced routes for better overall balance
         low_util_routes = [r for t, r in routes_with_scores if t == 'low_util']
         high_util_routes = [r for t, r in routes_with_scores if t == 'high_util']
-        
+
         for low_route in low_util_routes:
             for high_route in high_util_routes:
                 if len(high_route['assigned_users']) <= 1:
                     continue
-                    
+
                 # Try moving one user from high-util to low-util route
                 available_capacity = low_route['vehicle_type'] - len(low_route['assigned_users'])
                 if available_capacity > 0:
@@ -710,24 +743,24 @@ def final_pass_merge_balanced(routes, config, office_lat, office_lon):
                     low_center = calculate_route_center_improved(low_route)
                     best_user = None
                     best_distance = float('inf')
-                    
+
                     for user in high_route['assigned_users']:
                         distance = haversine_distance(low_center[0], low_center[1], user['lat'], user['lng'])
                         if distance < best_distance and distance <= MERGE_DISTANCE_KM:
                             best_distance = distance
                             best_user = user
-                    
+
                     if best_user:
                         # Move the user
                         high_route['assigned_users'].remove(best_user)
                         low_route['assigned_users'].append(best_user)
-                        
+
                         # Re-optimize both routes
                         low_route = optimize_route_sequence_improved(low_route, office_lat, office_lon)
                         high_route = optimize_route_sequence_improved(high_route, office_lat, office_lon)
                         update_route_metrics_improved(low_route, office_lat, office_lon)
                         update_route_metrics_improved(high_route, office_lat, office_lon)
-                        
+
                         optimization_made = True
                         logger.info("    ⚖️ Balanced redistribution: User moved between routes for better balance")
                         break
@@ -739,10 +772,10 @@ def final_pass_merge_balanced(routes, config, office_lat, office_lon):
     total_users = sum(len(r['assigned_users']) for r in merged_routes)
     avg_utilization = (total_users / total_seats * 100) if total_seats > 0 else 0
     avg_turning = np.mean([r.get('turning_score', 0) for r in merged_routes])
-    
+
     logger.info(f"  ⚖️ TRUE balanced merge: {len(routes)} → {len(merged_routes)} routes")
     logger.info(f"  ⚖️ Final balance: {avg_utilization:.1f}% utilization, {avg_turning:.1f}° avg turning")
-    
+
     return merged_routes
 
 
@@ -756,10 +789,22 @@ def run_assignment_balance(source_id: str, parameter: int = 1, string_param: str
     """
     start_time = time.time()
 
+    # Clear any cached data files to ensure fresh assignment
+    cache_files = [
+        "drivers_and_routes.json",
+        "drivers_and_routes_capacity.json", 
+        "drivers_and_routes_balance.json",
+        "drivers_and_routes_road_aware.json"
+    ]
+
+    for cache_file in cache_files:
+        if os.path.exists(cache_file):
+            os.remove(cache_file)
+
     # Reload configuration for balanced optimization
     global _config
     _config = load_and_validate_config()
-    
+
     # Update global variables from new config
     global MAX_FILL_DISTANCE_KM, MERGE_DISTANCE_KM, MAX_BEARING_DIFFERENCE, UTILIZATION_PENALTY_PER_SEAT
     MAX_FILL_DISTANCE_KM = _config['MAX_FILL_DISTANCE_KM']
@@ -828,7 +873,7 @@ def run_assignment_balance(source_id: str, parameter: int = 1, string_param: str
 
         # Prepare dataframes
         user_df, driver_df = prepare_user_driver_dataframes(data)
-        
+
         logger.info(f"📊 DataFrames prepared - Users: {len(user_df)}, Drivers: {len(driver_df)}")
 
         # STEP 1: Geographic clustering with balanced approach
@@ -856,21 +901,21 @@ def run_assignment_balance(source_id: str, parameter: int = 1, string_param: str
         # Filter out routes with no assigned users and move those drivers to unassigned
         filtered_routes = []
         empty_route_driver_ids = set()
-        
+
         for route in routes:
             if route['assigned_users'] and len(route['assigned_users']) > 0:
                 filtered_routes.append(route)
             else:
                 empty_route_driver_ids.add(route['driver_id'])
                 logger.info(f"  📋 Moving driver {route['driver_id']} with no users to unassigned drivers")
-        
+
         routes = filtered_routes
-        
+
         # Build unassigned drivers list (including drivers from empty routes)
         assigned_driver_ids = {route['driver_id'] for route in routes}
         unassigned_drivers_df = driver_df[~driver_df['driver_id'].isin(assigned_driver_ids)]
         unassigned_drivers = []
-        
+
         for _, driver in unassigned_drivers_df.iterrows():
             driver_data = {
                 'driver_id': str(driver.get('driver_id', '')),
@@ -892,7 +937,7 @@ def run_assignment_balance(source_id: str, parameter: int = 1, string_param: str
         users_assigned = sum(len(r['assigned_users']) for r in routes)
         users_unassigned = len(unassigned_users)
         users_accounted_for = users_assigned + users_unassigned
-        
+
         logger.info(f"✅ Balanced optimization complete in {execution_time:.2f}s")
         logger.info(f"📊 Final routes: {len(routes)}")
         logger.info(f"🎯 Users assigned: {users_assigned}")

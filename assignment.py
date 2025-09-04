@@ -14,7 +14,10 @@ from dotenv import load_dotenv
 import warnings
 import multiprocessing as mp
 from concurrent.futures import ThreadPoolExecutor
-from logger_config import get_logger
+from logger_config import get_logger, start_session
+
+# Start new session with cleared logs
+logger = start_session()
 
 warnings.filterwarnings('ignore')
 
@@ -356,10 +359,18 @@ def load_env_and_fetch_data(source_id: str,
         data["driversUnassigned"] = drivers_data.get("driversUnassigned", [])
         data["driversAssigned"] = drivers_data.get("driversAssigned", [])
     else:
-        # Fallback for old structure
         data["driversUnassigned"] = data.get("driversUnassigned", [])
         data["driversAssigned"] = data.get("driversAssigned", [])
 
+    # Extract ride_settings to determine algorithm
+    ride_settings = data.get("ride_settings", {})
+    pic_priority = ride_settings.get("pic_priority")
+    drop_priority = ride_settings.get("drop_priority")
+    
+    # Determine algorithm based on ride_settings priority value
+    algorithm_priority = pic_priority if pic_priority is not None else drop_priority
+    data["_algorithm_priority"] = algorithm_priority
+    
     # Log the data structure for debugging
     logger.info(f"📊 API Response structure:")
     logger.info(f"   - users: {len(data.get('users', []))}")
@@ -367,6 +378,8 @@ def load_env_and_fetch_data(source_id: str,
         f"   - driversUnassigned: {len(data.get('driversUnassigned', []))}")
     logger.info(
         f"   - driversAssigned: {len(data.get('driversAssigned', []))}")
+    logger.info(f"   - ride_settings: {ride_settings}")
+    logger.info(f"   - detected algorithm priority: {algorithm_priority}")
 
     return data
 
@@ -1364,8 +1377,8 @@ def split_route_by_bearing_improved(route, available_drivers, used_driver_ids,
     if bearing_spread > 60:
         # Large bearing spread: split by direction
         sub_routes = split_by_bearing_clusters_improved(
-            route, available_drivers, office_lat, office_lon, coords_km,
-            bearings)
+            route, available_drivers, used_driver_ids, office_lat,
+            office_lon, coords_km, bearings)
     else:
         # Small bearing spread: split by distance clusters
         sub_routes = split_by_distance_clusters_improved(
@@ -1811,7 +1824,7 @@ def calculate_tortuosity_ratio_improved(users, driver_pos, office_pos):
 def global_optimization(routes, user_df, assigned_user_ids, driver_df,
                         office_lat, office_lon):
     """
-    Enhanced Step 5: Global optimization with improved single-route fixing and route quality management
+    Step 5: Global optimization with improved single-route fixing and route quality management
     """
     logger = get_logger()
     logger.info("🌍 Step 5: Enhanced Global optimization...")
@@ -2151,7 +2164,8 @@ def fix_single_user_routes_improved(routes, user_df, assigned_user_ids,
     # Add remaining unmerged single routes
     final_routes = routes_to_keep + merged_singles + remaining_singles
 
-    logger.info(f"    ✅ Optimized {reassigned_count} single-user assignments")
+    logger.info(
+        f"    ✅ Optimized {reassigned_count} single-user assignments")
     logger.info(
         f"    📊 Reduced single-user routes from {len(single_user_routes)} to {len([r for r in final_routes if len(r['assigned_users']) == 1])}"
     )
@@ -2679,7 +2693,7 @@ def find_best_driver_for_group(user_group, available_drivers, office_lat,
         distance = haversine_distance(driver['latitude'], driver['longitude'],
                                       group_center[0], group_center[1])
 
-        # Driver bearing alignment with group
+        # Driver-cluster bearing alignment
         driver_bearing = calculate_bearing(office_lat, office_lon,
                                            driver['latitude'],
                                            driver['longitude'])
@@ -3017,8 +3031,7 @@ def handle_remaining_users_improved(unassigned_users_df, driver_df, routes,
 
                         # Remove assigned users and driver
                         remaining_users = remaining_users[
-                            ~remaining_users['user_id'].isin(user_ids_to_remove
-                                                             )]
+                            ~remaining_users['user_id'].isin(user_ids_to_remove)]
                         available_drivers = available_drivers[
                             available_drivers['driver_id'] !=
                             best_driver['driver_id']]
@@ -3151,7 +3164,71 @@ def find_best_driver_for_cluster_improved(cluster_users, available_drivers,
 # MAIN ASSIGNMENT FUNCTION
 def run_assignment(source_id: str, parameter: int = 1, string_param: str = ""):
     """
-    Main assignment function optimized for route efficiency:
+    Main assignment function that automatically routes to the appropriate algorithm
+    based on ride_settings priority value from the API response:
+    - Priority 1 → assign_capacity.py (Capacity Optimization)
+    - Priority 2 → assign_balance.py (Balanced Optimization) 
+    - Priority 3 → assign_route.py (Road-Aware Routing)
+    - Default → assignment.py (Route Efficiency)
+    """
+    start_time = time.time()
+
+    # Clear any cached data files to ensure fresh assignment
+    cache_files = [
+        "drivers_and_routes.json",
+        "drivers_and_routes_capacity.json",
+        "drivers_and_routes_balance.json",
+        "drivers_and_routes_road_aware.json"
+    ]
+
+    for cache_file in cache_files:
+        if os.path.exists(cache_file):
+            os.remove(cache_file)
+
+    # Initialize logging and progress tracking
+    logger = get_logger()
+    progress = get_progress_tracker()
+
+    logger.info(f"Starting assignment for source_id: {source_id}")
+    logger.info(f"Parameters: {parameter}, String: {string_param}")
+
+    try:
+        # STAGE 1: Data Loading & API Response Analysis
+        progress.start_stage("Data Loading & Algorithm Detection",
+                             "Loading data from API and detecting algorithm...")
+        data = load_env_and_fetch_data(source_id, parameter, string_param)
+        
+        # Get the algorithm priority from ride_settings
+        algorithm_priority = data.get("_algorithm_priority")
+        
+        # Route to appropriate algorithm based on priority
+        if algorithm_priority == 1:
+            logger.info("🎪 Routing to CAPACITY OPTIMIZATION (assign_capacity.py)")
+            from assign_capacity import run_assignment_capacity
+            return run_assignment_capacity(source_id, parameter, string_param)
+        elif algorithm_priority == 2:
+            logger.info("⚖️ Routing to BALANCED OPTIMIZATION (assign_balance.py)")
+            from assign_balance import run_assignment_balance
+            return run_assignment_balance(source_id, parameter, string_param)
+        elif algorithm_priority == 3:
+            logger.info("🗺️ Routing to ROAD-AWARE ROUTING (assign_route.py)")
+            from assign_route import run_road_aware_assignment
+            return run_road_aware_assignment(source_id, parameter, string_param)
+        else:
+            logger.info("🎯 Using default ROUTE EFFICIENCY algorithm (assignment.py)")
+            # Continue with route efficiency algorithm (original assignment.py logic)
+            return run_route_efficiency_assignment(source_id, parameter, string_param)
+
+    except Exception as e:
+        logger.error(f"Error in algorithm routing: {e}", exc_info=True)
+        # Fallback to route efficiency
+        logger.info("🔄 Falling back to ROUTE EFFICIENCY algorithm")
+        return run_route_efficiency_assignment(source_id, parameter, string_param)
+
+
+def run_route_efficiency_assignment(source_id: str, parameter: int = 1, string_param: str = ""):
+    """
+    Route efficiency assignment function (original assignment.py logic)
     - Prioritizes straight routes with minimal zigzag
     - Strict quality control for route turning and tortuosity
     - Efficient user-to-driver matching based on bearing alignment
