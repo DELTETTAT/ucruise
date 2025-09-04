@@ -238,66 +238,101 @@ class RoadCorridorAnalyzer:
 
             # Try to assign user to an existing route
             for route in routes:
+                logger = get_logger()
+                user_pos = (float(user['latitude']), float(user['longitude']))
+                driver_pos = (route['latitude'], route['longitude'])
+
+                logger.debug(f"🔍 Evaluating user {user['id']} for route {route['driver_id']}")
+                logger.debug(f"   User position: ({user_pos[0]:.6f}, {user_pos[1]:.6f})")
+                logger.debug(f"   Driver position: ({driver_pos[0]:.6f}, {driver_pos[1]:.6f})")
+
+                # Check capacity first
                 if len(route['assigned_users']) >= route['vehicle_type']:
+                    logger.debug(f"   ❌ Route {route['driver_id']} rejected: At capacity ({len(route['assigned_users'])}/{route['vehicle_type']})")
                     continue
 
-                driver_pos = (route['latitude'], route['longitude'])
                 route_users = route['assigned_users']
 
                 # Determine route type for road network functions
                 route_type = "straight" if mode == "efficiency" else "balanced" if mode == "balanced" else "capacity"
+                logger.debug(f"   📍 Route type: {route_type}, Mode: {mode}")
 
                 # Check if user is on route path with road network awareness
                 config = OPTIMIZATION_CONFIGS.get(mode, OPTIMIZATION_CONFIGS["balanced"])
                 max_detour = config.get('max_detour_ratio', 1.25)
+                logger.debug(f"   ⚙️ Max detour ratio: {max_detour}")
 
                 # Combined coherence and path check - use softer filtering with scoring
+                combined_score = 0.0
+                coherence = 0.0
+                on_path = False
+                proximity_score = 0.0
+
                 if self.road_network:
-                    test_users = [(u['lat'], u['lng']) for u in route_users] + [(float(user['latitude']), float(user['longitude']))]
+                    test_users = [(u['lat'], u['lng']) for u in route_users] + [user_pos]
                     coherence = self.road_network.get_route_coherence_score(
                         driver_pos, test_users, office_pos
                     )
+                    logger.debug(f"   🎯 Route coherence score: {coherence:.3f}")
 
                     # Check if user is on route path
                     on_path = self.road_network.is_user_on_route_path(
                         driver_pos, [(u['lat'], u['lng']) for u in route_users],
-                        (float(user['latitude']), float(user['longitude'])),
-                        office_pos, max_detour_ratio=max_detour, route_type=route_type
+                        user_pos, office_pos, max_detour_ratio=max_detour, route_type=route_type
                     )
+                    logger.debug(f"   🛣️ User on route path: {on_path}")
 
                     # Soft combined scoring instead of strict AND/OR
                     # Use combined score: 50% coherence, 30% path alignment, 20% proximity
-                    user_pos = (float(user['latitude']), float(user['longitude']))
                     distance_to_route = haversine_distance(driver_pos[0], driver_pos[1], user_pos[0], user_pos[1])
                     proximity_score = max(0, 1 - (distance_to_route / 10.0))  # Normalize to 0-1
+                    logger.debug(f"   📏 Distance to route: {distance_to_route:.3f}km")
+                    logger.debug(f"   📊 Proximity score: {proximity_score:.3f}")
 
                     combined_score = (coherence * 0.5 +
                                     (1.0 if on_path else 0.0) * 0.3 +
                                     proximity_score * 0.2)
 
+                    logger.debug(f"   🎯 Combined score: {combined_score:.3f} (threshold: 0.4)")
+
                     # Accept if combined score is reasonable (relaxed threshold)
                     if combined_score < 0.4:
+                        logger.debug(f"   ❌ Route {route['driver_id']} rejected: Combined score {combined_score:.3f} < 0.4")
                         continue
+                    else:
+                        logger.debug(f"   ✅ Route {route['driver_id']} passed combined score test")
 
                 # Sequential routing - no backtracking toward office
+                backtracking_check_passed = True
                 if route_users:
                     user_office_distance = haversine_distance(
-                        float(user['latitude']), float(user['longitude']), office_pos[0], office_pos[1]
+                        user_pos[0], user_pos[1], office_pos[0], office_pos[1]
                     )
                     last_user_office_distance = min([
                         haversine_distance(u['lat'], u['lng'], office_pos[0], office_pos[1])
                         for u in route_users
                     ])
+
+                    logger.debug(f"   🏢 User office distance: {user_office_distance:.3f}km")
+                    logger.debug(f"   🏢 Closest route user to office: {last_user_office_distance:.3f}km")
+
                     # Strict check - no tolerance for backtracking
                     if user_office_distance > last_user_office_distance + 0.1:  # 100m tolerance only
+                        logger.debug(f"   ❌ Route {route['driver_id']} rejected: Backtracking detected ({user_office_distance:.3f} > {last_user_office_distance + 0.1:.3f})")
+                        backtracking_check_passed = False
                         continue  # Skip users that force backtracking
+                    else:
+                        logger.debug(f"   ✅ No backtracking detected")
 
                 # Check capacity - get capacity from route
                 if len(route_users) >= route['vehicle_type']:
+                    logger.debug(f"   ❌ Route {route['driver_id']} rejected: At capacity")
                     continue
 
-                # Use copy for testing instead of mutating the original list
-                test_route_users = route_users.copy()
+                logger.debug(f"   ✅ Route {route['driver_id']} available: {len(route_users)}/{route['vehicle_type']} capacity")
+
+                # Create test route with new user for scoring
+                test_route = route.copy()
                 test_user_data = {
                     'user_id': str(user['id']),
                     'lat': float(user['latitude']),
@@ -311,44 +346,29 @@ class RoadCorridorAnalyzer:
                     test_user_data['first_name'] = str(user['first_name'])
                 if user.get('email'):
                     test_user_data['email'] = str(user['email'])
-
-                test_route_users.append(test_user_data)
-
-                # Calculate office distances for all users if not present
-                for u in test_route_users:
-                    if 'office_distance' not in u or u['office_distance'] == 0:
-                        u['office_distance'] = haversine_distance(
-                            u['lat'], u['lng'], office_pos[0], office_pos[1]
-                        )
-
-                # Create test route for scoring
-                test_route = route.copy()
-                test_route['assigned_users'] = test_route_users
-
-                # For straight routes, use sequential ordering by office distance (no backtracking)
-                # For other modes, use the road network optimizer
-                if route_type == "straight":
-                    # Sort by office distance to ensure monotonic progression toward office
-                    test_route_users.sort(key=lambda u: u['office_distance'])
-                    optimized_sequence = list(range(len(test_route_users)))
-                else:
-                    # Use road network optimization for balanced/capacity modes
-                    optimized_sequence = self.road_network.get_optimal_pickup_sequence(
-                        driver_pos,
-                        [(u['lat'], u['lng']) for u in test_route_users],
-                        office_pos
-                    ) if self.road_network else list(range(len(test_route_users)))
+                
+                test_route['assigned_users'] = route['assigned_users'] + [test_user_data]
 
                 current_route_score = self.calculate_route_score(test_route, driver_pos, office_pos, optimized_sequence)
 
+                logger.debug(f"   📊 Route score for {route['driver_id']}: {current_route_score:.3f}")
+                logger.debug(f"   📊 Previous best score: {best_route_score:.3f}")
+
                 if current_route_score > best_route_score:
+                    logger.debug(f"   🎯 New best route: {route['driver_id']} (score: {current_route_score:.3f})")
                     best_route_score = current_route_score
                     best_route_for_user = route
+                else:
+                    logger.debug(f"   📊 Route {route['driver_id']} score {current_route_score:.3f} not better than current best {best_route_score:.3f}")
 
             # If a suitable existing route is found, assign the user
             if best_route_for_user:
+                logger.info(f"🎯 ASSIGNING user {user['id']} to route {best_route_for_user['driver_id']} (best score: {best_route_score:.3f})")
+
                 route_users = best_route_for_user['assigned_users']
                 driver_pos = (best_route_for_user['latitude'], best_route_for_user['longitude'])
+
+                logger.debug(f"   📋 Route {best_route_for_user['driver_id']} current users: {[u['user_id'] for u in route_users]}")
 
                 # Recalculate office distances and re-sort/optimize
                 for u in route_users:
@@ -358,15 +378,19 @@ class RoadCorridorAnalyzer:
                         )
 
                 route_type = "straight" if mode == "efficiency" else "balanced" if mode == "balanced" else "capacity"
+                logger.debug(f"   🔄 Optimizing route sequence (type: {route_type})")
+
                 if route_type == "straight":
                     route_users.sort(key=lambda u: u['office_distance'])
                     optimized_sequence = list(range(len(route_users)))
+                    logger.debug(f"   📏 Straight route: sorted by office distance")
                 else:
                     optimized_sequence = self.road_network.get_optimal_pickup_sequence(
                         driver_pos,
                         [(float(user['latitude']), float(user['longitude'])) for user in route_users],
                         office_pos
                     ) if self.road_network else list(range(len(route_users)))
+                    logger.debug(f"   🗺️ Road-optimized sequence: {optimized_sequence}")
 
                 # Add user to the route with optimized sequence
                 final_user_data = {
@@ -382,20 +406,56 @@ class RoadCorridorAnalyzer:
                 if user.get('email'):
                     final_user_data['email'] = str(user['email'])
 
+                logger.debug(f"   📍 Final user data: {final_user_data}")
+
                 best_route_for_user['assigned_users'].append(final_user_data)
                 assigned_user_ids.add(str(user['id']))
+
+                # Log detailed assignment reason
+                assignment_details = {
+                    'route_score': best_route_score,
+                    'coherence_score': coherence,
+                    'on_path': on_path,
+                    'proximity_score': proximity_score,
+                    'combined_score': combined_score,
+                    'distance_to_driver': haversine_distance(driver_pos[0], driver_pos[1], user_pos[0], user_pos[1]),
+                    'office_distance': final_user_data['office_distance'],
+                    'route_capacity': f"{len(best_route_for_user['assigned_users'])}/{best_route_for_user['vehicle_type']}",
+                    'assignment_phase': 'existing_route_expansion'
+                }
+
+                logger.log_user_assignment(
+                    str(user['id']),
+                    best_route_for_user['driver_id'],
+                    assignment_details
+                )
+
+                logger.info(f"   ✅ User {user['id']} successfully assigned to route {best_route_for_user['driver_id']}")
+            else:
+                logger.warning(f"❌ No suitable route found for user {user['id']}")
+                logger.debug(f"   📍 User position: ({user_pos[0]:.6f}, {user_pos[1]:.6f})")
+                logger.debug(f"   📊 Evaluated {len(routes)} existing routes, none suitable")
 
         return routes, assigned_user_ids
 
     def calculate_route_score(self, route, driver_pos, office_pos, optimized_sequence):
         """Calculates a score for a given route."""
+        logger = get_logger()
+
         # Example scoring: prioritize routes with more users, shorter total distance, better coherence
         score = 0
         num_users = len(route['assigned_users'])
-        score += num_users * 10
+        user_score = num_users * 10
+        score += user_score
+
+        logger.debug(f"   📊 Route scoring for {route['driver_id']}:")
+        logger.debug(f"     👥 Users: {num_users} (+{user_score} points)")
 
         # Add a penalty for deviation from a direct path to the office
         total_route_dist = 0
+        detour_penalty = 0
+        coherence_bonus = 0
+
         if optimized_sequence:
             path = [driver_pos] + [(route['assigned_users'][i]['lat'], route['assigned_users'][i]['lng']) for i in optimized_sequence]
             for i in range(len(path) - 1):
@@ -404,15 +464,26 @@ class RoadCorridorAnalyzer:
             direct_dist = haversine_distance(driver_pos[0], driver_pos[1], office_pos[0], office_pos[1])
             if direct_dist > 0:
                 detour_ratio = total_route_dist / direct_dist
-                score -= detour_ratio * 15 # Stronger penalty for detours
+                detour_penalty = detour_ratio * 15  # Stronger penalty for detours
+                score -= detour_penalty
+
+                logger.debug(f"     🛣️ Total route distance: {total_route_dist:.3f}km")
+                logger.debug(f"     📏 Direct distance: {direct_dist:.3f}km")
+                logger.debug(f"     📊 Detour ratio: {detour_ratio:.3f} (-{detour_penalty:.1f} points)")
 
             # Add coherence score if available
             if self.road_network:
                 user_positions = [(u['lat'], u['lng']) for u in route['assigned_users']]
                 coherence = self.road_network.get_route_coherence_score(driver_pos, user_positions, office_pos)
-                score += coherence * 5
+                coherence_bonus = coherence * 5
+                score += coherence_bonus
 
-        return score
+                logger.debug(f"     🎯 Coherence: {coherence:.3f} (+{coherence_bonus:.1f} points)")
+
+        final_score = score
+        logger.debug(f"     🏆 Final score: {final_score:.3f}")
+
+        return final_score
 
 def haversine_distance(lat1, lon1, lat2, lon2):
     """Calculate the great-circle distance between two points on the Earth using built-in math."""
@@ -618,14 +689,35 @@ def assign_routes_road_aware(data):
                     distance = haversine_distance(driver_pos[0], driver_pos[1], user_pos[0], user_pos[1])
 
                     if distance <= 15.0:  # Within reasonable distance
+                        logger.info(f"      ✅ CORRIDOR ASSIGNMENT: User {user['user_id']} assigned to driver {driver_id}")
+                        logger.debug(f"         📍 Distance to driver: {distance:.3f}km")
+                        logger.debug(f"         🛣️ Corridor: {corridor_route['direction']}")
+                        logger.debug(f"         🎯 User position: ({user_pos[0]:.6f}, {user_pos[1]:.6f})")
+
+                        # Log detailed assignment reasoning
+                        corridor_assignment_details = {
+                            'corridor_direction': corridor_route['direction'],
+                            'distance_to_driver': distance,
+                            'corridor_bearing': corridor_route['bearing'],
+                            'assignment_phase': 'corridor_initial_assignment',
+                            'driver_capacity_used': f"{users_assigned_to_this_driver + 1}/{driver['capacity']}"
+                        }
+
+                        logger.log_user_assignment(
+                            user['user_id'],
+                            driver_id,
+                            corridor_assignment_details
+                        )
+
                         current_route['assigned_users'].append(user)
                         assigned_user_ids.add(user['user_id'])
                         users_assigned_to_this_driver += 1
                     else:
+                        logger.debug(f"      ❌ User {user['user_id']} too far from driver {driver_id}: {distance:.3f}km > 15km")
                         remaining_corridor_users.append(user)
 
                 except Exception as user_assign_error:
-                    print(f"    ⚠️ Error assigning user {user.get('user_id', 'unknown')}: {user_assign_error}")
+                    logger.error(f"    ⚠️ Error assigning user {user.get('user_id', 'unknown')} to driver {driver_id}: {user_assign_error}", exc_info=True)
                     remaining_corridor_users.append(user)
 
             # Update corridor_users for next iteration
@@ -717,6 +809,11 @@ def assign_routes_road_aware(data):
             distance_to_route = haversine_distance(route_center[0], route_center[1], user_pos[0], user_pos[1])
 
             if distance_to_route <= 5.0:
+                logger.info(f"🔄 CROSS-CORRIDOR ASSIGNMENT: User {user['id']} assigned to route {route['driver_id']}")
+                logger.debug(f"   📍 Distance to route center: {distance_to_route:.3f}km")
+                logger.debug(f"   🎯 Route center: ({route_center[0]:.6f}, {route_center[1]:.6f})")
+                logger.debug(f"   👤 User position: ({user_pos[0]:.6f}, {user_pos[1]:.6f})")
+
                 user_data = {
                     'user_id': str(user['id']),
                     'lat': float(user['latitude']),
@@ -728,10 +825,27 @@ def assign_routes_road_aware(data):
                 if user.get('email'):
                     user_data['email'] = str(user['email'])
 
+                # Log cross-corridor assignment details
+                cross_corridor_details = {
+                    'distance_to_route_center': distance_to_route,
+                    'route_center_coords': route_center,
+                    'available_capacity_before': route['vehicle_type'] - len(route['assigned_users']),
+                    'assignment_phase': 'cross_corridor_filling',
+                    'original_corridor': route.get('corridor_direction', 'unknown')
+                }
+
+                logger.log_user_assignment(
+                    str(user['id']),
+                    route['driver_id'],
+                    cross_corridor_details
+                )
+
                 route['assigned_users'].append(user_data)
                 assigned_user_ids.add(str(user['id']))
                 users_added_to_route += 1
                 users_to_remove.append(user)
+            else:
+                logger.debug(f"   ❌ User {user['id']} too far from route center: {distance_to_route:.3f}km > 5km")
 
         for user in users_to_remove:
             remaining_users.remove(user)
@@ -765,14 +879,29 @@ def assign_routes_road_aware(data):
                     driver_pos = (float(driver['latitude']), float(driver['longitude']))
                     distance = haversine_distance(driver_pos[0], driver_pos[1], user_pos[0], user_pos[1])
 
+                    logger.debug(f"     🚗 Evaluating driver {driver['id']} for emergency assignment")
+                    logger.debug(f"       📏 Distance: {distance:.3f}km (threshold: 20km)")
+                    logger.debug(f"       🎯 Driver position: ({driver_pos[0]:.6f}, {driver_pos[1]:.6f})")
+
                     if distance < best_distance and distance < 20.0:
+                        logger.debug(f"       🎯 New best emergency driver: {driver['id']} (distance: {distance:.3f}km)")
                         best_distance = distance
                         best_driver = driver
+                    else:
+                        if distance >= 20.0:
+                            logger.debug(f"       ❌ Driver {driver['id']} too far: {distance:.3f}km")
+                        else:
+                            logger.debug(f"       📊 Driver {driver['id']} distance {distance:.3f}km not better than current best {best_distance:.3f}km")
 
             if best_driver is not None:
+                logger.info(f"🚨 EMERGENCY ASSIGNMENT: User {user['id']} -> Driver {best_driver['id']}")
+                logger.debug(f"   📏 Distance: {best_distance:.3f}km")
+                logger.debug(f"   🎯 Best driver details: ID={best_driver['id']}, Capacity={best_driver['capacity']}")
+
                 # Double-check driver isn't already used (safety check)
                 if str(best_driver['id']) in used_driver_ids:
-                    logger.warning(f"Driver {best_driver['id']} already used - skipping to prevent duplication")
+                    logger.warning(f"❌ Driver {best_driver['id']} already used - skipping to prevent duplication")
+                    logger.warning(f"   🔍 Used driver IDs: {list(used_driver_ids)}")
                     continue
 
                 used_driver_ids.add(str(best_driver['id']))
@@ -791,6 +920,8 @@ def assign_routes_road_aware(data):
                 if user.get('email'):
                     user_data['email'] = str(user['email'])
 
+                logger.debug(f"   📋 Emergency route user data: {user_data}")
+
                 single_user_route = {
                     'driver_id': str(best_driver['id']),
                     'vehicle_id': str(best_driver.get('vehicle_id', '')),
@@ -799,6 +930,8 @@ def assign_routes_road_aware(data):
                     'longitude': float(best_driver['longitude']),
                     'assigned_users': [user_data]
                 }
+
+                logger.debug(f"   🚗 Emergency route created: {single_user_route['driver_id']} with user {user_data['user_id']}")
 
                 update_route_metrics_improved(single_user_route, office_lat, office_lon)
 
@@ -833,6 +966,13 @@ def assign_routes_road_aware(data):
 
                 final_available_drivers = [d for d in final_available_drivers if str(d['id']) != str(best_driver['id'])]
 
+            else:
+                logger.error(f"🚨 EMERGENCY ASSIGNMENT FAILED: No suitable driver found for user {user['id']}")
+                logger.error(f"   📍 User position: ({float(user['latitude']):.6f}, {float(user['longitude']):.6f})")
+                logger.error(f"   🚗 Available drivers: {[d['id'] for d in final_available_drivers]}")
+                logger.error(f"   📏 Distances to available drivers: {[haversine_distance(float(user['latitude']), float(user['longitude']), float(d['latitude']), float(d['longitude'])) for d in final_available_drivers]}")
+
+
     # PHASE 4: Advanced optimization phases
     print("🔧 Starting advanced optimization phases...")
 
@@ -845,21 +985,67 @@ def assign_routes_road_aware(data):
     unassigned_users = []
     for user in users:
         if str(user['id']) not in assigned_user_ids:
+            user_pos = (float(user['latitude']), float(user['longitude']))
+            office_distance = haversine_distance(user_pos[0], user_pos[1], office_lat, office_lon)
+
+            # Analyze why user wasn't assigned
+            reasons = []
+
+            # Check distances to all drivers
+            min_driver_distance = float('inf')
+            closest_driver = None
+            for driver in all_drivers:
+                driver_pos = (float(driver['latitude']), float(driver['longitude']))
+                dist = haversine_distance(user_pos[0], user_pos[1], driver_pos[0], driver_pos[1])
+                if dist < min_driver_distance:
+                    min_driver_distance = dist
+                    closest_driver = driver['id']
+
+            if min_driver_distance > 20.0:
+                reasons.append(f"Too far from nearest driver ({min_driver_distance:.1f}km > 20km)")
+
+            # Check if all drivers were at capacity
+            drivers_at_capacity = 0
+            for route in routes:
+                if len(route['assigned_users']) >= route['vehicle_type']:
+                    drivers_at_capacity += 1
+
+            if drivers_at_capacity == len(routes):
+                reasons.append("All routes at capacity")
+
+            # Check office distance
+            if office_distance > 50.0:
+                reasons.append(f"Very far from office ({office_distance:.1f}km)")
+
+            detailed_reason = "; ".join(reasons) if reasons else "Unknown assignment failure"
+
+            logger.error(f"🚨 UNASSIGNED USER ANALYSIS: {user['id']}")
+            logger.error(f"   📍 Position: ({user_pos[0]:.6f}, {user_pos[1]:.6f})")
+            logger.error(f"   🏢 Office distance: {office_distance:.3f}km")
+            logger.error(f"   🚗 Closest driver: {closest_driver} ({min_driver_distance:.3f}km)")
+            logger.error(f"   ❌ Reasons: {detailed_reason}")
+
             user_data = {
                 'user_id': str(user['id']),
                 'lat': float(user['latitude']),
                 'lng': float(user['longitude']),
-                'office_distance': haversine_distance(
-                    float(user['latitude']), float(user['longitude']),
-                    office_lat, office_lon
-                ),
-                'reason': 'Not assigned to any route'
+                'office_distance': office_distance,
+                'reason': detailed_reason
             }
             if user.get('first_name'):
                 user_data['first_name'] = str(user['first_name'])
             if user.get('email'):
                 user_data['email'] = str(user['email'])
+
             unassigned_users.append(user_data)
+
+            # Log to tracking system
+            logger.log_user_unassigned(
+                str(user['id']),
+                detailed_reason,
+                [str(d['id']) for d in all_drivers][:5]  # Sample of driver IDs
+            )
+
 
     unused_drivers = []
     for driver in all_drivers:

@@ -138,6 +138,64 @@ class RouteAssignmentLogger:
         else:
             self.logger.info("User accounting is correct")
 
+    def log_route_verification(self, routes):
+        """Log detailed route verification for debugging map mismatches"""
+        self.logger.info("🔍 DETAILED ROUTE VERIFICATION:")
+        self.logger.info("="*60)
+
+        for i, route in enumerate(routes, 1):
+            self.logger.info(f"Route {i} - Driver {route['driver_id']}:")
+            self.logger.info(f"  📍 Driver coordinates: ({route['latitude']:.6f}, {route['longitude']:.6f})")
+            self.logger.info(f"  🚗 Vehicle type/capacity: {route['vehicle_type']}")
+            self.logger.info(f"  🆔 Vehicle ID: {route.get('vehicle_id', 'N/A')}")
+            self.logger.info(f"  👥 Number of users: {len(route['assigned_users'])}")
+
+            if route['assigned_users']:
+                self.logger.info(f"  📋 User details:")
+                for j, user in enumerate(route['assigned_users'], 1):
+                    office_dist = user.get('office_distance', 'N/A')
+                    self.logger.info(f"    {j}. User {user['user_id']}")
+                    self.logger.info(f"       📍 Coordinates: ({user['lat']:.6f}, {user['lng']:.6f})")
+                    self.logger.info(f"       🏢 Office distance: {office_dist}km")
+                    self.logger.info(f"       👤 Name: {user.get('first_name', 'N/A')}")
+                    self.logger.info(f"       ✉️ Email: {user.get('email', 'N/A')}")
+            else:
+                self.logger.warning(f"  ❌ NO USERS ASSIGNED TO THIS ROUTE!")
+
+            utilization = len(route['assigned_users']) / route['vehicle_type'] if route['vehicle_type'] > 0 else 0
+            self.logger.info(f"  📊 Utilization: {utilization*100:.1f}%")
+            self.logger.info(f"  📏 Total distance: {route.get('total_distance', 'N/A')}km")
+            self.logger.info("")
+
+    def log_driver_assignment_summary(self, all_drivers, used_driver_ids, unused_drivers):
+        """Log comprehensive driver assignment summary"""
+        self.logger.info("🚗 DRIVER ASSIGNMENT SUMMARY:")
+        self.logger.info("="*60)
+
+        self.logger.info(f"📊 Driver statistics:")
+        self.logger.info(f"  Total drivers available: {len(all_drivers)}")
+        self.logger.info(f"  Drivers used: {len(used_driver_ids)}")
+        self.logger.info(f"  Drivers unused: {len(unused_drivers)}")
+
+        self.logger.info(f"📋 Used driver details:")
+        for driver_id in sorted(list(used_driver_ids)):
+            # Find the driver details
+            driver_details = None
+            for driver in all_drivers:
+                if str(driver['id']) == driver_id:
+                    driver_details = driver
+                    break
+
+            if driver_details:
+                self.logger.info(f"  ✅ Driver {driver_id}: capacity {driver_details['capacity']}, location ({driver_details['latitude']:.6f}, {driver_details['longitude']:.6f})")
+            else:
+                self.logger.info(f"  ❓ Driver {driver_id}: details not found")
+
+        if unused_drivers:
+            self.logger.info(f"📋 Unused driver details:")
+            for driver in unused_drivers:
+                self.logger.info(f"  ❌ Driver {driver['driver_id']}: capacity {driver['capacity']}, reason: {driver.get('reason', 'Unknown')}")
+
 # Global logger instance and session tracking
 route_logger = None
 current_session_id = None
