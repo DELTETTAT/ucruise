@@ -377,7 +377,7 @@ class RoadNetwork:
         if max_speed:
             try:
                 speed_val = float(max_speed.replace('mph', '').replace('kmh', '').strip())
-                # Normalize to a factor (higher speed = lower travel time factor)
+                # Normalize to a factor (higher speed = less travel time factor)
                 if 'mph' in str(max_speed):
                     speed_val *= 1.609  # Convert to km/h
                 

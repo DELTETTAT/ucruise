@@ -15,13 +15,24 @@
       "sequence_penalty": 0.1
     },
     "distance_validation": {
-      "max_reasonable_ratio": 5.0,
-      "min_road_efficiency": 0.1
+      "max_reasonable_ratio": 3.0,
+      "min_road_efficiency": 0.2
     },
     "projection": {
       "tile_size_degrees": 1.0,
       "use_adaptive_projection": true
     }
+  },
+  "route_quality": {
+    "corridor_assignment_max_distance_km": 4.0,
+    "cross_corridor_max_distance_km": 1.0,
+    "corridor_bearing_tolerance_degrees": 22.5,
+    "fallback_bearing_tolerance_degrees": 22.5,
+    "monotonic_tolerance_km": 0.2,
+    "max_monotonic_violations_per_route": 1,
+    "monotonic_violation_penalty": 5.0,
+    "emergency_assignment_max_distance_km": 8.0,
+    "require_bearing_match_cross_corridor": true
   },
   "dbscan_eps_km": 1.2,
   "min_samples_dbscan": 2,
