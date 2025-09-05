@@ -252,7 +252,7 @@ def assign_drivers_by_priority_capacity_focused(user_df, driver_df, office_lat, 
             # Create route with directionally consistent users
             cluster_df = pd.DataFrame(users_for_vehicle)
             route = assign_best_driver_to_cluster_capacity_focused(
-                cluster_df, pd.DataFrame([driver]), used_driver_ids, office_lat, office_lon)
+                cluster_df, pd.DataFrame([driver]), used_driver_ids, assigned_user_ids, office_lat, office_lon)
             
             if route:
                 routes.append(route)
@@ -320,7 +320,7 @@ def assign_drivers_by_priority_capacity_focused(user_df, driver_df, office_lat, 
                 user_data['first_name'] = str(user['first_name'])
             if pd.notna(user.get('email')):
                 user_data['email'] = str(user['email'])
-            
+
             route['assigned_users'].append(user_data)
             assigned_user_ids.add(user['user_id'])
         
@@ -346,7 +346,7 @@ def assign_drivers_by_priority_capacity_focused(user_df, driver_df, office_lat, 
     return routes, assigned_user_ids
 
 
-def assign_best_driver_to_cluster_capacity_focused(cluster_users, available_drivers, used_driver_ids, office_lat, office_lon):
+def assign_best_driver_to_cluster_capacity_focused(cluster_users, available_drivers, used_driver_ids, assigned_user_ids, office_lat, office_lon):
     """Find and assign the best available driver with MAXIMUM capacity utilization focus"""
     cluster_size = len(cluster_users)
 
@@ -419,19 +419,24 @@ def assign_best_driver_to_cluster_capacity_focused(cluster_users, available_driv
             users_to_add = [(i, user) for i, user in enumerate(cluster_users)]
 
         for _, user in users_to_add:
+            # Add users to route with duplicate check
+            if user['user_id'] in assigned_user_ids:
+                logger.warning(f"  ⚠️ User {user['user_id']} already assigned, skipping")
+                continue
+
             user_data = {
                 'user_id': str(user['user_id']),
                 'lat': float(user['latitude']),
                 'lng': float(user['longitude']),
                 'office_distance': float(user.get('office_distance', 0))
             }
-
             if pd.notna(user.get('first_name')):
                 user_data['first_name'] = str(user['first_name'])
             if pd.notna(user.get('email')):
                 user_data['email'] = str(user['email'])
 
             route['assigned_users'].append(user_data)
+            assigned_user_ids.add(user['user_id'])
 
         # Quick sequence optimization (but don't remove users for it)
         route = optimize_route_sequence_improved(route, office_lat, office_lon)
@@ -782,17 +787,51 @@ def run_assignment_capacity(source_id: str, parameter: int = 1, string_param: st
 
         execution_time = time.time() - start_time
 
-        # Final user count verification
+        # Final user count verification with duplicate detection
         total_users_in_api = len(users)
+
+        # Check for duplicate assignments
+        all_assigned_user_ids = []
+        for route in routes:
+            for user in route['assigned_users']:
+                all_assigned_user_ids.append(user['user_id'])
+
+        # Find duplicates
+        seen = set()
+        duplicates = set()
+        for user_id in all_assigned_user_ids:
+            if user_id in seen:
+                duplicates.add(user_id)
+            seen.add(user_id)
+
+        if duplicates:
+            logger.error(f"🚨 DUPLICATE ASSIGNMENTS DETECTED: {duplicates}")
+            # Remove duplicates - keep only first occurrence
+            for route in routes:
+                unique_users = []
+                seen_in_route = set()
+                for user in route['assigned_users']:
+                    if user['user_id'] not in seen_in_route:
+                        unique_users.append(user)
+                        seen_in_route.add(user['user_id'])
+                route['assigned_users'] = unique_users
+
         users_assigned = sum(len(r['assigned_users']) for r in routes)
         users_unassigned = len(unassigned_users)
         users_accounted_for = users_assigned + users_unassigned
-        
+
+        # Validate total doesn't exceed input
+        if users_assigned > total_users_in_api:
+            logger.error(f"🚨 ASSIGNMENT ERROR: {users_assigned} users assigned but only {total_users_in_api} users provided!")
+
         logger.info(f"✅ Capacity optimization complete in {execution_time:.2f}s")
         logger.info(f"📊 Final routes: {len(routes)}")
         logger.info(f"🎯 Users assigned: {users_assigned}")
         logger.info(f"👥 Users unassigned: {users_unassigned}")
         logger.info(f"📋 User accounting: {users_accounted_for}/{total_users_in_api} users")
+
+        if duplicates:
+            logger.info(f"🔧 Removed {len(duplicates)} duplicate assignments")
 
         return {
             "status": "true",

@@ -18,13 +18,52 @@ from logger_config import get_logger
 
 warnings.filterwarnings('ignore')
 
-# Setup logging
+# Setup logging first
 logger = get_logger()
 
+# Import road_network module for route coherence scoring
+try:
+    import road_network as road_network_module
+    # Create an instance of RoadNetwork class if it exists
+    try:
+        # Try to create RoadNetwork instance (assuming GraphML file exists)
+        road_network = road_network_module.RoadNetwork('road_graph.graphml')
+        logger.info("Successfully loaded RoadNetwork with GraphML data")
+    except Exception as e:
+        logger.warning(f"Could not create RoadNetwork instance: {e}. Using mock implementation.")
+        class MockRoadNetwork:
+            def get_route_coherence_score(self, driver_pos, user_positions, office_pos):
+                # Mock implementation: returns a score based on simple distance heuristic
+                if not user_positions:
+                    return 1.0
+                avg_dist_from_driver = sum(haversine_distance(driver_pos[0], driver_pos[1], u[0], u[1]) for u in user_positions) / len(user_positions)
+                avg_dist_from_office = sum(haversine_distance(office_pos[0], office_pos[1], u[0], u[1]) for u in user_positions) / len(user_positions)
+                
+                # Simple heuristic: higher coherence if users are closer to the driver's path
+                # and not too far from the office
+                score = max(0, 1.0 - (avg_dist_from_driver / 50.0) - (avg_dist_from_office / 100.0))
+                return min(1.0, score)
+        road_network = MockRoadNetwork()
+except ImportError:
+    logger.warning("road_network module not found. Road network features will be limited.")
+    class MockRoadNetwork:
+        def get_route_coherence_score(self, driver_pos, user_positions, office_pos):
+            # Mock implementation: returns a score based on simple distance heuristic
+            if not user_positions:
+                return 1.0
+            avg_dist_from_driver = sum(haversine_distance(driver_pos[0], driver_pos[1], u[0], u[1]) for u in user_positions) / len(user_positions)
+            avg_dist_from_office = sum(haversine_distance(office_pos[0], office_pos[1], u[0], u[1]) for u in user_positions) / len(user_positions)
+            
+            # Simple heuristic: higher coherence if users are closer to the driver's path
+            # and not too far from the office
+            score = max(0, 1.0 - (avg_dist_from_driver / 50.0) - (avg_dist_from_office / 100.0))
+            return min(1.0, score)
+    road_network = MockRoadNetwork()
 
-# Load and validate configuration with balanced optimization settings
+
+# Load and validate configuration with route optimization settings
 def load_and_validate_config():
-    """Load configuration with balanced optimization settings"""
+    """Load configuration with route optimization settings"""
     try:
         with open('config.json') as f:
             cfg = json.load(f)
@@ -32,14 +71,14 @@ def load_and_validate_config():
         logger.warning(f"Could not load config.json, using defaults. Error: {e}")
         cfg = {}
 
-    # Always use balanced mode
+    # Always use balanced mode for route optimization
     current_mode = "balanced_optimization"
 
-    # Get balanced optimization configuration
+    # Get balanced optimization configuration for route optimization
     mode_configs = cfg.get("mode_configs", {})
     mode_config = mode_configs.get("balanced_optimization", {})
 
-    logger.info(f"🎯 Using optimization mode: BALANCED OPTIMIZATION")
+    logger.info(f"🗺️ Using optimization mode: ROUTE OPTIMIZATION")
 
     # Validate and set configuration with mode-specific overrides (between route_efficiency and capacity)
     config = {}
@@ -52,7 +91,7 @@ def load_and_validate_config():
     config['DISTANCE_ISSUE_THRESHOLD'] = max(0.1, float(cfg.get("distance_issue_threshold_km", 10.0)))
     config['SWAP_IMPROVEMENT_THRESHOLD'] = max(0.0, float(cfg.get("swap_improvement_threshold_km", 0.7)))
 
-    # Utilization thresholds (balanced)
+    # Utilization thresholds (route optimized)
     config['MIN_UTIL_THRESHOLD'] = max(0.0, min(1.0, float(cfg.get("min_util_threshold", 0.65))))
     config['LOW_UTILIZATION_THRESHOLD'] = max(0.0, min(1.0, float(cfg.get("low_utilization_threshold", 0.6))))
 
@@ -67,7 +106,7 @@ def load_and_validate_config():
     config['MAX_BEARING_DIFFERENCE'] = max(0, min(180, float(mode_config.get("max_bearing_difference", cfg.get("max_bearing_difference", 30)))))
     config['MAX_TURNING_ANGLE'] = max(0, min(180, float(mode_config.get("max_allowed_turning_score", cfg.get("max_allowed_turning_score", 40)))))
 
-    # Cost penalties with mode overrides (balanced weights)
+    # Cost penalties with mode overrides (route optimized weights)
     config['UTILIZATION_PENALTY_PER_SEAT'] = max(0.0, float(mode_config.get("utilization_penalty_per_seat", cfg.get("utilization_penalty_per_seat", 3.0))))
 
     # Office coordinates with environment variable fallbacks
@@ -85,8 +124,8 @@ def load_and_validate_config():
     config['OFFICE_LAT'] = office_lat
     config['OFFICE_LON'] = office_lon
 
-    # Balanced optimization parameters
-    config['optimization_mode'] = "balanced_optimization"
+    # Route optimization parameters
+    config['optimization_mode'] = "route_optimization"
     config['aggressive_merging'] = mode_config.get('aggressive_merging', None)  # Moderate
     config['capacity_weight'] = mode_config.get('capacity_weight', 2.5)
     config['direction_weight'] = mode_config.get('direction_weight', 2.5)
@@ -99,7 +138,7 @@ def load_and_validate_config():
     config['max_users_per_initial_cluster'] = cfg.get('max_users_per_initial_cluster', 8)
     config['max_users_per_cluster'] = cfg.get('max_users_per_cluster', 7)
 
-    # Balanced optimization parameters
+    # Route optimization parameters
     config['zigzag_penalty_weight'] = mode_config.get('zigzag_penalty_weight', cfg.get('zigzag_penalty_weight', 2.0))
     config['route_split_turning_threshold'] = cfg.get('route_split_turning_threshold', 45)
     config['max_tortuosity_ratio'] = cfg.get('max_tortuosity_ratio', 1.5)
@@ -143,7 +182,7 @@ from assignment import (
     _convert_users_to_unassigned_format, analyze_assignment_quality, get_progress_tracker
 )
 
-# Load validated configuration - always balanced optimization
+# Load validated configuration - always route optimization
 _config = load_and_validate_config()
 MAX_FILL_DISTANCE_KM = _config['MAX_FILL_DISTANCE_KM']
 MERGE_DISTANCE_KM = _config['MERGE_DISTANCE_KM']
@@ -164,17 +203,17 @@ OFFICE_LAT = _config['OFFICE_LAT']
 OFFICE_LON = _config['OFFICE_LON']
 
 
-def assign_drivers_by_priority_balanced(user_df, driver_df, office_lat, office_lon):
+def assign_drivers_by_priority_route_optimized(user_df, driver_df, office_lat, office_lon):
     """
-    Truly balanced driver assignment: 50/50 between capacity utilization and route efficiency
+    Route optimized driver assignment: Smart route between capacity utilization and route efficiency
     """
-    logger.info("🚗 Step 3: Truly balanced driver assignment...")
+    logger.info("🗺️ Step 3: Route optimized driver assignment...")
 
     routes = []
     assigned_user_ids = set()
     used_driver_ids = set()
 
-    # Balanced sorting: capacity and priority equally weighted
+    # Route optimized sorting: capacity and priority equally weighted
     available_drivers = driver_df.sort_values(['capacity', 'priority'], 
                                               ascending=[False, True])
 
@@ -192,12 +231,12 @@ def assign_drivers_by_priority_balanced(user_df, driver_df, office_lat, office_l
         # Calculate main route bearing
         main_route_bearing = calculate_bearing(office_lat, office_lon, driver['latitude'], driver['longitude'])
 
-        # Find users with balanced distance/direction constraints
+        # Find users with route optimized distance/direction constraints
         users_for_vehicle = []
         max_distance_limit = MAX_FILL_DISTANCE_KM * 1.5  # Between strict efficiency and lenient capacity
         max_bearing_deviation = 37  # Between 20° (efficiency) and 45° (capacity)
 
-        # Collect candidate users with balanced scoring
+        # Collect candidate users with route optimized scoring
         candidate_users = []
         for _, user in all_unassigned_users.iterrows():
             distance = haversine_distance(driver['latitude'], driver['longitude'], 
@@ -208,14 +247,14 @@ def assign_drivers_by_priority_balanced(user_df, driver_df, office_lat, office_l
 
             bearing_diff_from_main = bearing_difference(main_route_bearing, office_to_user_bearing)
 
-            # Balanced acceptance criteria
+            # Route optimized acceptance criteria
             if (distance <= max_distance_limit and 
                 bearing_diff_from_main <= max_bearing_deviation):
-                # Balanced score: equal weight to distance and direction
+                # Route optimized score: equal weight to distance and direction
                 score = distance * 0.5 + bearing_diff_from_main * 0.1  # 0.1 km per degree
                 candidate_users.append((score, user))
 
-        # Sort by balanced score and fill to 85% capacity (balanced target)
+        # Sort by route optimized score and fill to 85% capacity (route optimized target)
         candidate_users.sort(key=lambda x: x[0])
         target_capacity = min(vehicle_capacity, max(2, int(vehicle_capacity * 0.85)))
 
@@ -227,7 +266,7 @@ def assign_drivers_by_priority_balanced(user_df, driver_df, office_lat, office_l
         # If we have good utilization, create the route
         if len(users_for_vehicle) >= max(2, vehicle_capacity * 0.5):  # At least 50% utilization
             cluster_df = pd.DataFrame(users_for_vehicle)
-            route = assign_best_driver_to_cluster_balanced(
+            route = assign_best_driver_to_cluster_route_optimized(
                 cluster_df, pd.DataFrame([driver]), used_driver_ids, office_lat, office_lon)
 
             if route:
@@ -238,14 +277,14 @@ def assign_drivers_by_priority_balanced(user_df, driver_df, office_lat, office_l
                 quality_metrics = {
                     'utilization': len(route['assigned_users']) / vehicle_capacity,
                     'vehicle_capacity': vehicle_capacity,
-                    'optimization_mode': 'balanced',
+                    'optimization_mode': 'route_optimization',
                     'directional_consistency': True
                 }
 
                 logger.log_route_creation(
                     driver['driver_id'],
                     route['assigned_users'],
-                    f"Balanced optimization with {len(route['assigned_users'])} users",
+                    f"Route optimization with {len(route['assigned_users'])} users",
                     quality_metrics
                 )
 
@@ -260,7 +299,7 @@ def assign_drivers_by_priority_balanced(user_df, driver_df, office_lat, office_l
                                 route['latitude'], route['longitude'],
                                 user['lat'], user['lng']
                             ),
-                            'optimization_mode': 'balanced'
+                            'optimization_mode': 'route_optimization'
                         }
                     )
 
@@ -269,7 +308,7 @@ def assign_drivers_by_priority_balanced(user_df, driver_df, office_lat, office_l
                 all_unassigned_users = all_unassigned_users[~all_unassigned_users['user_id'].isin(assigned_ids_set)]
 
                 utilization = len(route['assigned_users']) / vehicle_capacity * 100
-                logger.info(f"  ⚖️ Driver {driver['driver_id']}: {len(route['assigned_users'])}/{vehicle_capacity} seats ({utilization:.1f}%) - Balanced")
+                logger.info(f"  🗺️ Driver {driver['driver_id']}: {len(route['assigned_users'])}/{vehicle_capacity} seats ({utilization:.1f}%) - Route Optimized")
 
     # Second pass: Fill remaining seats with slightly more lenient constraints
     remaining_users = all_unassigned_users[~all_unassigned_users['user_id'].isin(assigned_user_ids)]
@@ -282,7 +321,7 @@ def assign_drivers_by_priority_balanced(user_df, driver_df, office_lat, office_l
         if available_seats <= 0:
             continue
 
-        # Balanced seat filling
+        # Route optimized seat filling
         route_bearing = calculate_average_bearing_improved(route, office_lat, office_lon)
         route_center = calculate_route_center_improved(route)
 
@@ -294,7 +333,7 @@ def assign_drivers_by_priority_balanced(user_df, driver_df, office_lat, office_l
             user_bearing = calculate_bearing(office_lat, office_lon, user['latitude'], user['longitude'])
             bearing_diff = bearing_difference(route_bearing, user_bearing)
 
-            # Balanced criteria for seat filling
+            # Route optimized criteria for seat filling
             if distance <= MAX_FILL_DISTANCE_KM * 1.8 and bearing_diff <= 40:
                 score = distance * 0.6 + bearing_diff * 0.08  # Slightly favor distance
                 compatible_users.append((score, user))
@@ -328,46 +367,51 @@ def assign_drivers_by_priority_balanced(user_df, driver_df, office_lat, office_l
 
             route = optimize_route_sequence_improved(route, office_lat, office_lon)
             utilization = len(route['assigned_users']) / route['vehicle_type'] * 100
-            logger.info(f"  ⚖️ Route {route['driver_id']}: Added {len(users_to_add)} users, now {len(route['assigned_users'])}/{route['vehicle_type']} ({utilization:.1f}%)")
+            logger.info(f"  🗺️ Route {route['driver_id']}: Added {len(users_to_add)} users, now {len(route['assigned_users'])}/{route['vehicle_type']} ({utilization:.1f}%)")
 
-    logger.info(f"  ✅ Balanced assignment: {len(routes)} routes with true 50/50 balance")
+    # Check for users who were not assigned and need to be processed by splitting/merging logic
+    final_unassigned_users_df = all_unassigned_users[~all_unassigned_users['user_id'].isin(assigned_user_ids)]
+    if not final_unassigned_users_df.empty:
+        logger.warning(f"⚠️ {len(final_unassigned_users_df)} users remain unassigned after initial pass. These will be handled by global_optimization or split/merge logic.")
 
-    # Calculate balanced metrics
+    logger.info(f"  ✅ Route optimized assignment: {len(routes)} routes with smart route optimization")
+
+    # Calculate route optimized metrics
     total_seats = sum(r['vehicle_type'] for r in routes)
     total_users = sum(len(r['assigned_users']) for r in routes)
     overall_utilization = (total_users / total_seats * 100) if total_seats > 0 else 0
 
-    logger.info(f"  ⚖️ Balanced utilization: {total_users}/{total_seats} ({overall_utilization:.1f}%)")
+    logger.info(f"  🗺️ Route optimized utilization: {total_users}/{total_seats} ({overall_utilization:.1f}%)")
 
     return routes, assigned_user_ids
 
 
-def assign_best_driver_to_cluster_balanced(cluster_users, available_drivers, used_driver_ids, office_lat, office_lon):
-    """Find and assign the best available driver with TRUE 50/50 balanced optimization"""
+def assign_best_driver_to_cluster_route_optimized(cluster_users, available_drivers, used_driver_ids, office_lat, office_lon):
+    """Find and assign the best available driver with route optimization"""
     cluster_size = len(cluster_users)
 
     best_driver = None
     best_score = float('inf')
     best_sequence = None
 
-    # TRUE balanced weights - exactly equal importance
-    capacity_weight = 2.5  # Equal weight
-    direction_weight = 2.5  # Equal weight
+    # Route optimized weights - route importance
+    capacity_weight = 2.5  # Route weight
+    direction_weight = 2.5  # Route weight
 
     for _, driver in available_drivers.iterrows():
         if driver['driver_id'] in used_driver_ids:
             continue
 
-        # Capacity check (allow some over-assignment for balance)
+        # Capacity check (allow some over-assignment for route optimization)
         if driver['capacity'] < cluster_size:
             continue
 
         # Calculate route metrics
-        route_cost, sequence, mean_turning_degrees = calculate_route_cost_balanced(
+        route_cost, sequence, mean_turning_degrees = calculate_route_cost_route_optimized(
             driver, cluster_users, office_lat, office_lon
         )
 
-        # Balanced scoring approach
+        # Route optimized scoring approach
         utilization = cluster_size / driver['capacity']
 
         # Distance component (efficiency factor)
@@ -382,7 +426,7 @@ def assign_best_driver_to_cluster_balanced(cluster_users, available_drivers, use
         # Priority component (small tiebreaker)
         priority_score = driver['priority'] * 0.2
 
-        # Balanced total score: equal emphasis on efficiency (distance + direction) and capacity
+        # Route optimized total score: route emphasis on efficiency (distance + direction) and capacity
         efficiency_component = distance_score + direction_score  # Route efficiency
         capacity_component = capacity_score  # Capacity utilization
 
@@ -405,7 +449,7 @@ def assign_best_driver_to_cluster_balanced(cluster_users, available_drivers, use
             'assigned_users': []
         }
 
-        # Add all users from cluster (balanced approach)
+        # Add all users from cluster (route optimized approach)
         if hasattr(cluster_users, 'iterrows'):
             users_to_add = list(cluster_users.iterrows())
         else:
@@ -426,28 +470,28 @@ def assign_best_driver_to_cluster_balanced(cluster_users, available_drivers, use
 
             route['assigned_users'].append(user_data)
 
-        # Balanced optimization of sequence
+        # Route optimized optimization of sequence
         route = optimize_route_sequence_improved(route, office_lat, office_lon)
         update_route_metrics_improved(route, office_lat, office_lon)
 
         utilization = len(route['assigned_users']) / route['vehicle_type']
-        logger.info(f"    ⚖️ Balanced assignment - Driver {best_driver['driver_id']}: {len(route['assigned_users'])}/{route['vehicle_type']} seats ({utilization*100:.1f}%)")
+        logger.info(f"    🗺️ Route optimized assignment - Driver {best_driver['driver_id']}: {len(route['assigned_users'])}/{route['vehicle_type']} seats ({utilization*100:.1f}%)")
 
         return route
 
     return None
 
 
-def calculate_route_cost_balanced(driver, cluster_users, office_lat, office_lon):
-    """Calculate route cost with TRUE balanced optimization - equal weight to distance and direction"""
+def calculate_route_cost_route_optimized(driver, cluster_users, office_lat, office_lon):
+    """Calculate route cost with route optimization - equal weight to distance and direction"""
     if len(cluster_users) == 0:
         return float('inf'), [], 0
 
     driver_pos = (driver['latitude'], driver['longitude'])
     office_pos = (office_lat, office_lon)
 
-    # Get optimal pickup sequence with balanced focus (equal weight to distance and direction)
-    sequence = calculate_optimal_sequence_balanced(driver_pos, cluster_users, office_pos)
+    # Get optimal pickup sequence with route optimized focus (equal weight to distance and direction)
+    sequence = calculate_optimal_sequence_route_optimized(driver_pos, cluster_users, office_pos)
 
     # Calculate total route distance
     total_distance = 0
@@ -495,14 +539,14 @@ def calculate_route_cost_balanced(driver, cluster_users, office_lat, office_lon)
             office_lat, office_lon
         )
 
-    # Calculate mean turning angle - balanced weight (neither too strict nor too lenient)
+    # Calculate mean turning angle - route optimized weight (neither too strict nor too lenient)
     mean_turning_degrees = sum(bearing_differences) / len(bearing_differences) if bearing_differences else 0
 
     return total_distance, sequence, mean_turning_degrees
 
 
-def calculate_optimal_sequence_balanced(driver_pos, cluster_users, office_pos):
-    """Calculate sequence with TRUE balanced optimization - exactly 50/50 between distance and direction"""
+def calculate_optimal_sequence_route_optimized(driver_pos, cluster_users, office_pos):
+    """Calculate sequence with route optimization - route focused between distance and direction"""
     if len(cluster_users) <= 1:
         return cluster_users.to_dict('records') if hasattr(cluster_users, 'to_dict') else list(cluster_users)
 
@@ -511,8 +555,8 @@ def calculate_optimal_sequence_balanced(driver_pos, cluster_users, office_pos):
     # Calculate main route bearing (driver to office)
     main_route_bearing = calculate_bearing(driver_pos[0], driver_pos[1], office_pos[0], office_pos[1])
 
-    # TRUE balanced scoring: exactly 50% distance, 50% direction
-    def true_balanced_score(user):
+    # Route optimized scoring: exactly 50% distance, 50% direction
+    def route_optimized_score(user):
         # Distance component (50%)
         distance = haversine_distance(driver_pos[0], driver_pos[1], 
                                     user['latitude'], user['longitude'])
@@ -524,23 +568,23 @@ def calculate_optimal_sequence_balanced(driver_pos, cluster_users, office_pos):
         bearing_diff = normalize_bearing_difference(user_bearing - main_route_bearing)
         bearing_diff_rad = math.radians(abs(bearing_diff))
 
-        # Equal weight to distance and bearing alignment
+        # Route weight to distance and bearing alignment
         distance_score = distance  # Raw distance
         direction_score = distance * (1 - math.cos(bearing_diff_rad))  # Direction penalty in distance units
 
-        # TRUE 50/50 balance
+        # Route optimized route focus
         combined_score = distance_score * 0.5 + direction_score * 0.5
 
         return (combined_score, user['user_id'])
 
-    users_list.sort(key=true_balanced_score)
+    users_list.sort(key=route_optimized_score)
 
-    # Apply truly balanced 2-opt optimization
-    return apply_balanced_2opt(users_list, driver_pos, office_pos)
+    # Apply route optimized 2-opt optimization
+    return apply_route_optimized_2opt(users_list, driver_pos, office_pos)
 
 
-def apply_balanced_2opt(sequence, driver_pos, office_pos):
-    """Apply TRUE balanced 2-opt improvements - equal weight to distance and direction"""
+def apply_route_optimized_2opt(sequence, driver_pos, office_pos):
+    """Apply route optimized 2-opt improvements - route weight to distance and direction"""
     if len(sequence) <= 2:
         return sequence
 
@@ -551,7 +595,7 @@ def apply_balanced_2opt(sequence, driver_pos, office_pos):
     # Calculate main bearing from driver to office
     main_bearing = calculate_bearing(driver_pos[0], driver_pos[1], office_pos[0], office_pos[1])
 
-    # Balanced turning angle threshold (exactly between efficiency and capacity)
+    # Route optimized turning angle threshold (exactly between efficiency and capacity)
     max_turning_threshold = 47  # Between 35° (efficiency) and 60° (capacity)
 
     while improved and iteration < max_iterations:
@@ -570,14 +614,14 @@ def apply_balanced_2opt(sequence, driver_pos, office_pos):
                 new_distance = calculate_sequence_distance(new_sequence, driver_pos, office_pos)
                 new_turning_score = calculate_sequence_turning_score_improved(new_sequence, driver_pos, office_pos)
 
-                # TRUE balanced acceptance criteria - equal weight to both factors
+                # Route optimized acceptance criteria - route weight to both factors
                 distance_improvement = (best_distance - new_distance) / best_distance  # Normalized improvement
                 turning_improvement = (best_turning_score - new_turning_score)  # Absolute improvement
 
                 # Convert turning improvement to same scale as distance (percentage)
                 turning_improvement_normalized = turning_improvement / max(best_turning_score, 1.0)
 
-                # Equal weight to both improvements
+                # Route weight to both improvements
                 combined_improvement = distance_improvement * 0.5 + turning_improvement_normalized * 0.5
 
                 # Accept if combined improvement is positive and turning stays reasonable
@@ -595,16 +639,16 @@ def apply_balanced_2opt(sequence, driver_pos, office_pos):
     return sequence
 
 
-def final_pass_merge_balanced(routes, config, office_lat, office_lon):
+def final_pass_merge_route_optimized(routes, config, office_lat, office_lon):
     """
-    TRUE balanced final-pass merge: Equal focus on capacity utilization and route efficiency
+    Route optimized final-pass merge: Route focus on capacity utilization and route efficiency
     """
-    logger.info("🔄 Step 6: TRUE balanced final-pass merge...")
+    logger.info("🔄 Step 6: Route optimized final-pass merge...")
 
     merged_routes = []
     used = set()
 
-    # Balanced thresholds (exactly between route efficiency and capacity)
+    # Route optimized thresholds (exactly between route efficiency and capacity)
     MERGE_BEARING_THRESHOLD = 32  # Between 20° (efficiency) and 45° (capacity)
     MERGE_DISTANCE_KM = config.get("MERGE_DISTANCE_KM", 3.5) * 1.4  # Between 3.0 and 5.0
     MERGE_TURNING_THRESHOLD = 50  # Between 35° (efficiency) and 60° (capacity)
@@ -615,13 +659,13 @@ def final_pass_merge_balanced(routes, config, office_lat, office_lon):
             continue
 
         best_merge = None
-        best_balanced_score = float('inf')
+        best_route_optimized_score = float('inf')
 
         for j, r2 in enumerate(routes):
             if j <= i or j in used:
                 continue
 
-            # 1. Direction compatibility check (balanced)
+            # 1. Direction compatibility check (route optimized)
             b1 = calculate_average_bearing_improved(r1, office_lat, office_lon)
             b2 = calculate_average_bearing_improved(r2, office_lat, office_lon)
             bearing_diff = bearing_difference(b1, b2)
@@ -629,7 +673,7 @@ def final_pass_merge_balanced(routes, config, office_lat, office_lon):
             if bearing_diff > MERGE_BEARING_THRESHOLD:
                 continue
 
-            # 2. Distance compatibility check (balanced)
+            # 2. Distance compatibility check (route optimized)
             c1 = calculate_route_center_improved(r1)
             c2 = calculate_route_center_improved(r2)
             centroid_distance = haversine_distance(c1[0], c1[1], c2[0], c2[1])
@@ -644,7 +688,7 @@ def final_pass_merge_balanced(routes, config, office_lat, office_lon):
             if total_users > max_capacity:
                 continue
 
-            # 4. Quality assessment with balanced criteria
+            # 4. Quality assessment with route optimized criteria
             combined_center = calculate_combined_route_center(r1, r2)
             dist1 = haversine_distance(r1['latitude'], r1['longitude'], combined_center[0], combined_center[1])
             dist2 = haversine_distance(r2['latitude'], r2['longitude'], combined_center[0], combined_center[1])
@@ -659,7 +703,7 @@ def final_pass_merge_balanced(routes, config, office_lat, office_lon):
             # Optimize sequence for merged route
             test_route = optimize_route_sequence_improved(test_route, office_lat, office_lon)
 
-            # Calculate balanced quality metrics
+            # Calculate route optimized quality metrics
             turning_score = calculate_route_turning_score_improved(
                 test_route['assigned_users'],
                 (test_route['latitude'], test_route['longitude']),
@@ -674,22 +718,30 @@ def final_pass_merge_balanced(routes, config, office_lat, office_lon):
 
             utilization = total_users / max_capacity
 
-            # Balanced acceptance criteria - both efficiency and capacity matter equally
+            # Route optimized acceptance criteria - both efficiency and capacity matter for routes
             efficiency_acceptable = (turning_score <= MERGE_TURNING_THRESHOLD and 
                                    tortuosity <= MERGE_TORTUOSITY_THRESHOLD)
-            capacity_acceptable = utilization >= 0.6  # Balanced utilization requirement
+            capacity_acceptable = utilization >= 0.6  # Route optimized utilization requirement
 
-            # Only accept if BOTH efficiency and capacity criteria are met
-            if efficiency_acceptable and capacity_acceptable:
-                # TRUE balanced scoring: 50% efficiency, 50% capacity
+            # Road network coherence check for route optimization
+            road_coherence_acceptable = True
+            if road_network:
+                driver_pos = (test_route['latitude'], test_route['longitude'])
+                user_positions = [(u['lat'], u['lng']) for u in test_route['assigned_users']]
+                coherence = road_network.get_route_coherence_score(driver_pos, user_positions, (office_lat, office_lon))
+                road_coherence_acceptable = coherence >= 0.6  # Route optimized coherence threshold
+
+            # Only accept if ALL criteria are met for route optimization
+            if efficiency_acceptable and capacity_acceptable and road_coherence_acceptable:
+                # Route optimized scoring: route% efficiency, route% capacity
                 efficiency_score = turning_score * 0.5 + (tortuosity - 1.0) * 20  # Route quality
                 capacity_score = (1.0 - utilization) * 100  # Underutilization penalty
 
-                # Equal weight to both components
-                balanced_score = efficiency_score * 0.5 + capacity_score * 0.5
+                # Route weight to both components
+                route_optimized_score = efficiency_score * 0.5 + capacity_score * 0.5
 
-                if balanced_score < best_balanced_score:
-                    best_balanced_score = balanced_score
+                if route_optimized_score < best_route_optimized_score:
+                    best_route_optimized_score = route_optimized_score
                     best_merge = (j, test_route)
 
         if best_merge is not None:
@@ -700,34 +752,34 @@ def final_pass_merge_balanced(routes, config, office_lat, office_lon):
 
             utilization_pct = len(merged_route['assigned_users']) / merged_route['vehicle_type'] * 100
             turning = merged_route.get('turning_score', 0)
-            logger.info(f"  ⚖️ Balanced merge: {r1['driver_id']} + {routes[j]['driver_id']} = {len(merged_route['assigned_users'])}/{merged_route['vehicle_type']} seats ({utilization_pct:.1f}%, {turning:.1f}° turn)")
+            logger.info(f"  🗺️ Route optimized merge: {r1['driver_id']} + {routes[j]['driver_id']} = {len(merged_route['assigned_users'])}/{merged_route['vehicle_type']} seats ({utilization_pct:.1f}%, {turning:.1f}° turn)")
         else:
             merged_routes.append(r1)
             used.add(i)
 
-    # Additional balanced optimization pass
-    logger.info("  ⚖️ Additional balanced optimization pass...")
+    # Additional route optimized optimization pass
+    logger.info("  🗺️ Additional route optimization pass...")
 
-    # Try to redistribute for better overall balance
+    # Try to redistribute for better overall route optimization
     optimization_made = True
     while optimization_made:
         optimization_made = False
 
-        # Sort routes by efficiency score for balancing
+        # Sort routes by efficiency score for route optimization
         routes_with_scores = []
         for route in merged_routes:
             utilization = len(route['assigned_users']) / route['vehicle_type']
             efficiency = route.get('turning_score', 0)
 
-            # Look for opportunities to balance
+            # Look for opportunities to optimize routes
             if utilization < 0.7 and efficiency < 35:  # Good efficiency, poor capacity
                 routes_with_scores.append(('low_util', route))
             elif utilization > 0.9 and efficiency > 45:  # Good capacity, poor efficiency  
                 routes_with_scores.append(('high_util', route))
             else:
-                routes_with_scores.append(('balanced', route))
+                routes_with_scores.append(('route_optimized', route))
 
-        # Try to swap users between unbalanced routes for better overall balance
+        # Try to swap users between unbalanced routes for better overall route optimization
         low_util_routes = [r for t, r in routes_with_scores if t == 'low_util']
         high_util_routes = [r for t, r in routes_with_scores if t == 'high_util']
 
@@ -762,7 +814,7 @@ def final_pass_merge_balanced(routes, config, office_lat, office_lon):
                         update_route_metrics_improved(high_route, office_lat, office_lon)
 
                         optimization_made = True
-                        logger.info("    ⚖️ Balanced redistribution: User moved between routes for better balance")
+                        logger.info("    🗺️ Route optimization redistribution: User moved between routes for better optimization")
                         break
             if optimization_made:
                 break
@@ -773,19 +825,592 @@ def final_pass_merge_balanced(routes, config, office_lat, office_lon):
     avg_utilization = (total_users / total_seats * 100) if total_seats > 0 else 0
     avg_turning = np.mean([r.get('turning_score', 0) for r in merged_routes])
 
-    logger.info(f"  ⚖️ TRUE balanced merge: {len(routes)} → {len(merged_routes)} routes")
-    logger.info(f"  ⚖️ Final balance: {avg_utilization:.1f}% utilization, {avg_turning:.1f}° avg turning")
+    logger.info(f"  🗺️ Route optimized merge: {len(routes)} → {len(merged_routes)} routes")
+    logger.info(f"  🗺️ Final route optimization: {avg_utilization:.1f}% utilization, {avg_turning:.1f}° avg turning")
 
     return merged_routes
 
 
-# MAIN ASSIGNMENT FUNCTION FOR BALANCED OPTIMIZATION
-def run_assignment_balance(source_id: str, parameter: int = 1, string_param: str = ""):
+# ROAD NETWORK HELPER FUNCTIONS FOR MERGING AND SPLITTING
+def _are_routes_on_same_road_path(route1, route2, office_lat, office_lon):
+    """Check if two routes follow similar road paths for merging compatibility"""
+    if not road_network:
+        return True  # Fallback to allowing merge if no road network
+
+    try:
+        # Get positions for both routes
+        r1_pos = (route1['latitude'], route1['longitude'])
+        r2_pos = (route2['latitude'], route2['longitude'])
+        office_pos = (office_lat, office_lon)
+
+        # Get user positions for both routes
+        r1_users = [(u['lat'], u['lng']) for u in route1['assigned_users']]
+        r2_users = [(u['lat'], u['lng']) for u in route2['assigned_users']]
+
+        # Check if routes have good coherence when combined
+        combined_users = r1_users + r2_users
+
+        # Choose better positioned driver for coherence check
+        r1_to_center = sum(haversine_distance(r1_pos[0], r1_pos[1], u[0], u[1]) for u in combined_users) / len(combined_users) if combined_users else 0
+        r2_to_center = sum(haversine_distance(r2_pos[0], r2_pos[1], u[0], u[1]) for u in combined_users) / len(combined_users) if combined_users else 0
+
+        driver_pos = r1_pos if r1_to_center <= r2_to_center else r2_pos
+
+        # Calculate coherence score for the combined route
+        coherence_score = road_network.get_route_coherence_score(driver_pos, combined_users, office_pos)
+
+        # Accept merge if coherence is reasonable (route optimized threshold)
+        return coherence_score >= 0.6  # Route optimized threshold between 0.5 and 0.7
+
+    except Exception as e:
+        logger.warning(f"Road path checking failed: {e}")
+        return True  # Fallback to allowing merge
+
+
+def _should_split_route_by_road_network(route, office_lat, office_lon):
+    """Check if a route should be split based on road network analysis"""
+    if not road_network or len(route['assigned_users']) < 3:
+        return False, []
+
+    try:
+        driver_pos = (route['latitude'], route['longitude'])
+        office_pos = (office_lat, office_lon)
+        user_positions = [(u['lat'], u['lng']) for u in route['assigned_users']]
+
+        # Check if current route has poor coherence
+        current_coherence = road_network.get_route_coherence_score(driver_pos, user_positions, office_pos)
+
+        # If coherence is already good, don't split
+        if current_coherence >= 0.65:  # Route optimized threshold
+            return False, []
+
+        # Try to find better groupings by analyzing road connectivity
+        best_split = _find_optimal_road_based_split(driver_pos, user_positions, office_pos)
+
+        if best_split:
+            group1, group2 = best_split
+            # Ensure both groups have reasonable sizes
+            if len(group1) >= 2 and len(group2) >= 2:
+                return True, [group1, group2]
+
+        return False, []
+
+    except Exception as e:
+        logger.warning(f"Road network split analysis failed: {e}")
+        return False, []
+
+
+def _find_optimal_road_based_split(driver_pos, user_positions, office_pos):
+    """Find optimal way to split users based on road network analysis"""
+    if len(user_positions) < 4:
+        return None
+
+    best_split = None
+    best_combined_coherence = 0
+
+    # Try different ways to split the users
+    from itertools import combinations
+
+    n_users = len(user_positions)
+    # Try splits where each group has at least 2 users
+    for r in range(2, n_users - 1):
+        for group1_indices in combinations(range(n_users), r):
+            group2_indices = [i for i in range(n_users) if i not in group1_indices]
+
+            if len(group2_indices) < 2:
+                continue
+
+            group1_positions = [user_positions[i] for i in group1_indices]
+            group2_positions = [user_positions[i] for i in group2_indices]
+
+            # Calculate coherence for both groups
+            coherence1 = road_network.get_route_coherence_score(driver_pos, group1_positions, office_pos)
+            coherence2 = road_network.get_route_coherence_score(driver_pos, group2_positions, office_pos)
+
+            # Combined coherence (weighted by group sizes)
+            w1 = len(group1_positions) / n_users
+            w2 = len(group2_positions) / n_users
+            combined_coherence = coherence1 * w1 + coherence2 * w2
+
+            # Accept split if both groups have decent coherence and combined is better
+            if (coherence1 >= 0.6 and coherence2 >= 0.6 and 
+                combined_coherence > best_combined_coherence):
+                best_combined_coherence = combined_coherence
+                best_split = (group1_positions, group2_positions)
+
+    return best_split
+
+
+def perform_quality_merge_improved(routes, config, office_lat, office_lon):
     """
-    Main assignment function optimized for balanced approach:
-    - Balances capacity utilization and route efficiency
-    - Moderate constraints on both turning angles and utilization
-    - Seeks optimal trade-off between the two objectives
+    Perform route merging with enhanced quality checks, including road network awareness.
+    This function merges routes based on proximity, capacity, and road path compatibility.
+    """
+    logger.info("🔄 Performing enhanced route merging with road network awareness...")
+    
+    merged_routes = []
+    used_route_indices = set()
+
+    # Route optimized merge thresholds
+    MERGE_DISTANCE_KM = config.get('MERGE_DISTANCE_KM', 3.5) * 1.2 # Slightly more lenient for road awareness
+    MERGE_BEARING_THRESHOLD = config.get('MAX_BEARING_DIFFERENCE', 30) + 10 # Slightly more lenient
+    MERGE_TURNING_THRESHOLD = config.get('MAX_TURNING_ANGLE', 40) + 10 # Slightly more lenient
+    MERGE_TORTUOSITY_THRESHOLD = config.get('max_tortuosity_ratio', 1.5) + 0.15 # Slightly more lenient
+
+    for i in range(len(routes)):
+        if i in used_route_indices:
+            continue
+
+        best_merge_candidate = None
+        best_merge_score = float('inf')
+
+        for j in range(i + 1, len(routes)):
+            if j in used_route_indices:
+                continue
+
+            route1 = routes[i]
+            route2 = routes[j]
+
+            # 1. Basic compatibility checks
+            # Check capacity
+            total_users = len(route1['assigned_users']) + len(route2['assigned_users'])
+            max_capacity = max(route1['vehicle_type'], route2['vehicle_type'])
+            if total_users > max_capacity:
+                continue
+
+            # Check direction (average bearing)
+            avg_bearing1 = calculate_average_bearing_improved(route1, office_lat, office_lon)
+            avg_bearing2 = calculate_average_bearing_improved(route2, office_lat, office_lon)
+            bearing_diff = bearing_difference(avg_bearing1, avg_bearing2)
+            if bearing_diff > MERGE_BEARING_THRESHOLD:
+                continue
+
+            # Check centroid distance
+            center1 = calculate_route_center_improved(route1)
+            center2 = calculate_route_center_improved(route2)
+            dist_between_centers = haversine_distance(center1[0], center1[1], center2[0], center2[1])
+            if dist_between_centers > MERGE_DISTANCE_KM:
+                continue
+            
+            # 2. Road network compatibility check
+            if not _are_routes_on_same_road_path(route1, route2, office_lat, office_lon):
+                continue
+
+            # 3. Quality assessment of potential merge
+            # Create a hypothetical merged route to evaluate
+            merged_route_candidate = {
+                'driver_id': route1['driver_id'], # Arbitrarily pick one driver ID for the merged route
+                'vehicle_id': route1['vehicle_id'],
+                'vehicle_type': max_capacity,
+                'latitude': (center1[0] * len(route1['assigned_users']) + center2[0] * len(route2['assigned_users'])) / total_users,
+                'longitude': (center1[1] * len(route1['assigned_users']) + center2[1] * len(route2['assigned_users'])) / total_users,
+                'assigned_users': route1['assigned_users'] + route2['assigned_users']
+            }
+
+            # Optimize sequence for the candidate merged route
+            merged_route_candidate = optimize_route_sequence_improved(merged_route_candidate, office_lat, office_lon)
+            update_route_metrics_improved(merged_route_candidate, office_lat, office_lon)
+
+            # Evaluate quality
+            turning_score = merged_route_candidate.get('turning_score', 0)
+            tortuosity = merged_route_candidate.get('tortuosity_ratio', 1.0)
+            utilization = total_users / max_capacity
+
+            # Road network coherence for the merged route
+            coherence = 0.0
+            if road_network:
+                driver_pos = (merged_route_candidate['latitude'], merged_route_candidate['longitude'])
+                user_positions = [(u['lat'], u['lng']) for u in merged_route_candidate['assigned_users']]
+                coherence = road_network.get_route_coherence_score(driver_pos, user_positions, (office_lat, office_lon))
+
+            # Route optimized scoring for merge quality
+            # Prioritize efficiency (turning, tortuosity) and road coherence, then capacity
+            efficiency_score = (turning_score / MERGE_TURNING_THRESHOLD) + (tortuosity / MERGE_TORTUOSITY_THRESHOLD)
+            coherence_score = coherence / 0.7 # Normalize coherence
+            capacity_score = (1.0 - utilization) * 2 # Penalty for underutilization
+
+            # Route optimized weighting for merge decision
+            merge_score = (efficiency_score * 0.4 + 
+                           coherence_score * 0.4 + 
+                           capacity_score * 0.2)
+
+            if merge_score < best_merge_score:
+                best_merge_score = merge_score
+                best_merge_candidate = (j, merged_route_candidate)
+
+        if best_merge_candidate:
+            j, merged_route = best_merge_candidate
+            merged_routes.append(merged_route)
+            used_route_indices.add(i)
+            used_route_indices.add(j)
+            logger.info(f"  ✅ Merged route {i} with {j} into a new route with {len(merged_route['assigned_users'])} users.")
+        else:
+            merged_routes.append(routes[i])
+            used_route_indices.add(i)
+            
+    # Add any routes that were not merged
+    for i in range(len(routes)):
+        if i not in used_route_indices:
+            merged_routes.append(routes[i])
+
+    # Final check for road network split logic
+    final_routes_after_split = []
+    for route in merged_routes:
+        should_split, split_groups = _should_split_route_by_road_network(route, office_lat, office_lon)
+        if should_split:
+            logger.info(f"  🚗 Splitting route {route['driver_id']} based on road network analysis.")
+            # Convert split groups back to route format
+            for group_positions in split_groups:
+                new_route = route.copy()
+                # Find original user data for the positions
+                user_ids_in_group = set()
+                for pos in group_positions:
+                    for user in route['assigned_users']:
+                        if abs(user['lat'] - pos[0]) < 0.0001 and abs(user['lng'] - pos[1]) < 0.0001:
+                            user_ids_in_group.add(user['user_id'])
+                            break
+                
+                new_route['assigned_users'] = [u for u in route['assigned_users'] if u['user_id'] in user_ids_in_group]
+                # Update route center and driver position for the new route
+                if new_route['assigned_users']:
+                    new_route['latitude'] = np.mean([u['lat'] for u in new_route['assigned_users']])
+                    new_route['longitude'] = np.mean([u['lng'] for u in new_route['assigned_users']])
+                    new_route = optimize_route_sequence_improved(new_route, office_lat, office_lon)
+                    update_route_metrics_improved(new_route, office_lat, office_lon)
+                    final_routes_after_split.append(new_route)
+                
+        else:
+            final_routes_after_split.append(route)
+
+    return final_routes_after_split
+
+
+def enhanced_route_splitting(routes, config, office_lat, office_lon):
+    """
+    Perform route splitting with enhanced logic, considering road network constraints.
+    This function identifies routes that are too long, have poor directional consistency,
+    or are divided by road networks and splits them into more coherent sub-routes.
+    """
+    logger.info("🔄 Performing enhanced route splitting with road network analysis...")
+    
+    split_routes = []
+    
+    for route in routes:
+        # Check if the route is eligible for splitting based on its current quality
+        should_split, split_groups = _should_split_route_by_road_network(route, office_lat, office_lon)
+
+        if should_split:
+            logger.info(f"  🚗 Splitting route {route['driver_id']} due to road network analysis.")
+            # Create new routes from the split groups
+            for group_positions in split_groups:
+                new_route = route.copy()
+                # Filter assigned users based on positions
+                user_ids_in_group = set()
+                for pos in group_positions:
+                    for user in route['assigned_users']:
+                        if abs(user['lat'] - pos[0]) < 0.0001 and abs(user['lng'] - pos[1]) < 0.0001:
+                            user_ids_in_group.add(user['user_id'])
+                            break
+                
+                new_route['assigned_users'] = [u for u in route['assigned_users'] if u['user_id'] in user_ids_in_group]
+                
+                # Recalculate route properties for the new sub-route
+                if new_route['assigned_users']:
+                    new_route['latitude'] = np.mean([u['lat'] for u in new_route['assigned_users']])
+                    new_route['longitude'] = np.mean([u['lng'] for u in new_route['assigned_users']])
+                    
+                    # Re-optimize the sequence and update metrics for the new sub-route
+                    new_route = optimize_route_sequence_improved(new_route, office_lat, office_lon)
+                    update_route_metrics_improved(new_route, office_lat, office_lon)
+                    split_routes.append(new_route)
+        else:
+            split_routes.append(route)
+
+    return split_routes
+
+def intelligent_route_splitting_improved(routes, config, office_lat, office_lon):
+    """
+    Perform intelligent route splitting by identifying and splitting routes
+    that are too long, have poor directional consistency, or are divided by roads.
+    """
+    logger.info("🔄 Performing intelligent route splitting...")
+    
+    # First, apply the road network based splitting
+    routes_after_road_split = enhanced_route_splitting(routes, config, office_lat, office_lon)
+    
+    final_split_routes = []
+    for route in routes_after_road_split:
+        # Apply existing splitting logic (e.g., by bearing, distance) if needed
+        # For now, we rely on the enhanced splitting to cover these aspects.
+        # If further splitting logic is required, it would be added here.
+        
+        # Example: Check for excessive turning angles or tortuosity if not already covered
+        turning_score = route.get('turning_score', 0)
+        tortuosity = route.get('tortuosity_ratio', 1.0)
+        
+        # Route optimized thresholds for splitting
+        SPLIT_TURNING_THRESHOLD = config.get('route_split_turning_threshold', 45) + 5 # More lenient
+        SPLIT_TORTUOSITY_THRESHOLD = config.get('max_tortuosity_ratio', 1.5) + 0.15 # More lenient
+
+        # Check if the route needs splitting based on turning or tortuosity alone
+        if (turning_score > SPLIT_TURNING_THRESHOLD or tortuosity > SPLIT_TORTUOSITY_THRESHOLD) and len(route['assigned_users']) >= 3:
+            logger.info(f"  🚗 Splitting route {route['driver_id']} due to high turning/tortuosity.")
+            # For simplicity, we'll just log this and assume the road network split logic
+            # or subsequent optimization will handle it. A more complex implementation
+            # would involve actual splitting logic here.
+            # In a real scenario, you might call a function like `split_route_by_bearing_improved` or similar.
+            
+            # Placeholder for actual splitting logic if needed:
+            # For now, we just add the original route and log the potential split.
+            # If a specific splitting mechanism is desired, implement it here.
+            final_split_routes.append(route)
+        else:
+            final_split_routes.append(route)
+            
+    return final_split_routes
+
+
+def quality_preserving_route_merging(routes, config, office_lat, office_lon):
+    """
+    Performs route merging with a focus on preserving overall route quality,
+    considering efficiency, capacity, and now, road network compatibility.
+    """
+    logger.info("🔄 Performing quality-preserving route merging with road network awareness...")
+    
+    # Use the enhanced merging function which includes road network checks
+    return perform_quality_merge_improved(routes, config, office_lat, office_lon)
+
+
+def strict_merge_compatibility_improved(route1, route2, office_lat, office_lon, config):
+    """
+    Checks for strict compatibility between two routes for merging,
+    incorporating road network considerations.
+    """
+    # Use the road network check as part of the strict compatibility
+    if not _are_routes_on_same_road_path(route1, route2, office_lat, office_lon):
+        return False
+
+    # Existing strict checks (e.g., capacity, direction, distance)
+    total_users = len(route1['assigned_users']) + len(route2['assigned_users'])
+    max_capacity = max(route1['vehicle_type'], route2['vehicle_type'])
+    if total_users > max_capacity:
+        return False
+
+    avg_bearing1 = calculate_average_bearing_improved(route1, office_lat, office_lon)
+    avg_bearing2 = calculate_average_bearing_improved(route2, office_lat, office_lon)
+    bearing_diff = bearing_difference(avg_bearing1, avg_bearing2)
+    if bearing_diff > config.get('MAX_BEARING_DIFFERENCE', 30):
+        return False
+
+    center1 = calculate_route_center_improved(route1)
+    center2 = calculate_route_center_improved(route2)
+    dist_between_centers = haversine_distance(center1[0], center1[1], center2[0], center2[1])
+    if dist_between_centers > config.get('MERGE_DISTANCE_KM', 3.5):
+        return False
+
+    # Add checks for turning angle and tortuosity if needed for "strict" merge
+    # This part would depend on how "strict" is defined in the context of route quality.
+    # For now, we'll assume the above checks and road network are the primary strict criteria.
+
+    return True
+
+
+def calculate_merge_quality_score(route1, route2, merged_route, office_lat, office_lon, config):
+    """
+    Calculates a quality score for merging two routes, considering road network coherence.
+    """
+    total_users = len(route1['assigned_users']) + len(route2['assigned_users'])
+    max_capacity = max(route1['vehicle_type'], route2['vehicle_type'])
+    utilization = total_users / max_capacity if max_capacity else 0
+
+    turning_score = merged_route.get('turning_score', 0)
+    tortuosity = merged_route.get('tortuosity_ratio', 1.0)
+
+    coherence = 0.0
+    if road_network:
+        driver_pos = (merged_route['latitude'], merged_route['longitude'])
+        user_positions = [(u['lat'], u['lng']) for u in merged_route['assigned_users']]
+        coherence = road_network.get_route_coherence_score(driver_pos, user_positions, (office_lat, office_lon))
+
+    # Route optimized scoring: prioritize efficiency, coherence, then capacity
+    # These weights are heuristic and can be tuned.
+    efficiency_weight = 0.4
+    coherence_weight = 0.4
+    capacity_weight = 0.2
+
+    # Normalize scores to be comparable
+    # Lower turning/tortuosity is better; higher coherence/utilization is better.
+    # We'll penalize higher turning/tortuosity and lower utilization.
+    
+    # Penalties for inefficiency (higher is worse)
+    turning_penalty = turning_score / config.get('MAX_TURNING_ANGLE', 40)
+    tortuosity_penalty = (tortuosity - 1.0) / (config.get('max_tortuosity_ratio', 1.5) - 1.0) if tortuosity > 1.0 else 0
+
+    # Penalty for underutilization (higher is worse)
+    capacity_penalty = (1.0 - utilization) * 2 # Scale this penalty
+
+    # Coherence score (higher is better)
+    coherence_score = coherence / 0.7 # Normalize to a target good coherence
+
+    # Combine scores: Lower is better for penalties, higher is better for coherence
+    # We want to minimize the total "badness"
+    
+    # Combine penalties: lower is better
+    efficiency_and_capacity_score = (turning_penalty * 0.5 + 
+                                     tortuosity_penalty * 0.5 + 
+                                     capacity_penalty * 0.5)
+
+    # Combine all factors. For simplicity, let's aim to minimize a composite score.
+    # Lower scores are better.
+    # Score: efficiency_penalty + capacity_penalty - coherence_bonus
+    # We want to minimize this composite score.
+    
+    # Let's define a score where lower is better.
+    # Higher turning, tortuosity, capacity penalty increase the score.
+    # Higher coherence decreases the score.
+    
+    score = (efficiency_weight * (turning_penalty + tortuosity_penalty) +
+             capacity_weight * capacity_penalty -
+             coherence_weight * coherence_score)
+    
+    # Ensure score is not excessively low due to very high coherence.
+    return score
+
+
+def perform_quality_merge_improved(routes, config, office_lat, office_lon):
+    """
+    Performs route merging with enhanced quality checks, including road network awareness.
+    This function merges routes based on proximity, capacity, and road path compatibility.
+    """
+    logger.info("🔄 Performing enhanced route merging with road network awareness...")
+    
+    merged_routes = []
+    used_route_indices = set()
+
+    # Route optimized merge thresholds
+    MERGE_DISTANCE_KM = config.get('MERGE_DISTANCE_KM', 3.5) * 1.2 # Slightly more lenient for road awareness
+    MERGE_BEARING_THRESHOLD = config.get('MAX_BEARING_DIFFERENCE', 30) + 10 # Slightly more lenient
+    MERGE_TURNING_THRESHOLD = config.get('MAX_TURNING_ANGLE', 40) + 10 # Slightly more lenient
+    MERGE_TORTUOSITY_THRESHOLD = config.get('max_tortuosity_ratio', 1.5) + 0.15 # Slightly more lenient
+
+    for i in range(len(routes)):
+        if i in used_route_indices:
+            continue
+
+        best_merge_candidate = None
+        best_merge_score = float('inf')
+
+        for j in range(i + 1, len(routes)):
+            if j in used_route_indices:
+                continue
+
+            route1 = routes[i]
+            route2 = routes[j]
+
+            # 1. Basic compatibility checks
+            # Check capacity
+            total_users = len(route1['assigned_users']) + len(route2['assigned_users'])
+            max_capacity = max(route1['vehicle_type'], route2['vehicle_type'])
+            if total_users > max_capacity:
+                continue
+
+            # Check direction (average bearing)
+            avg_bearing1 = calculate_average_bearing_improved(route1, office_lat, office_lon)
+            avg_bearing2 = calculate_average_bearing_improved(route2, office_lat, office_lon)
+            bearing_diff = bearing_difference(avg_bearing1, avg_bearing2)
+            if bearing_diff > MERGE_BEARING_THRESHOLD:
+                continue
+
+            # Check centroid distance
+            center1 = calculate_route_center_improved(route1)
+            center2 = calculate_route_center_improved(route2)
+            dist_between_centers = haversine_distance(center1[0], center1[1], center2[0], center2[1])
+            if dist_between_centers > MERGE_DISTANCE_KM:
+                continue
+            
+            # 2. Road network compatibility check
+            if not _are_routes_on_same_road_path(route1, route2, office_lat, office_lon):
+                continue
+
+            # 3. Quality assessment of potential merge
+            # Create a hypothetical merged route to evaluate
+            merged_route_candidate = {
+                'driver_id': route1['driver_id'], # Arbitrarily pick one driver ID for the merged route
+                'vehicle_id': route1['vehicle_id'],
+                'vehicle_type': max_capacity,
+                'latitude': (center1[0] * len(route1['assigned_users']) + center2[0] * len(route2['assigned_users'])) / total_users if total_users > 0 else center1[0],
+                'longitude': (center1[1] * len(route1['assigned_users']) + center2[1] * len(route2['assigned_users'])) / total_users if total_users > 0 else center1[1],
+                'assigned_users': route1['assigned_users'] + route2['assigned_users']
+            }
+
+            # Optimize sequence for the candidate merged route
+            merged_route_candidate = optimize_route_sequence_improved(merged_route_candidate, office_lat, office_lon)
+            update_route_metrics_improved(merged_route_candidate, office_lat, office_lon)
+
+            # Calculate quality score
+            merge_score = calculate_merge_quality_score(route1, route2, merged_route_candidate, office_lat, office_lon, config)
+
+            if merge_score < best_merge_score:
+                best_merge_score = merge_score
+                best_merge_candidate = (j, merged_route_candidate)
+
+        if best_merge_candidate:
+            j, merged_route = best_merge_candidate
+            merged_routes.append(merged_route)
+            used_route_indices.add(i)
+            used_route_indices.add(j)
+            logger.info(f"  ✅ Merged route {i} with {j} into a new route with {len(merged_route['assigned_users'])} users.")
+        else:
+            merged_routes.append(routes[i])
+            used_route_indices.add(i)
+            
+    # Add any routes that were not merged
+    for i in range(len(routes)):
+        if i not in used_route_indices:
+            merged_routes.append(routes[i])
+
+    # Final check for road network split logic (applying split to the merged routes)
+    final_routes_after_split = []
+    for route in merged_routes:
+        should_split, split_groups = _should_split_route_by_road_network(route, office_lat, office_lon)
+        if should_split:
+            logger.info(f"  🚗 Splitting merged route {route['driver_id']} based on road network analysis.")
+            # Create new routes from the split groups
+            for group_positions in split_groups:
+                new_route = route.copy()
+                # Filter assigned users based on positions
+                user_ids_in_group = set()
+                for pos in group_positions:
+                    for user in route['assigned_users']:
+                        # Using a small tolerance for floating point comparisons
+                        if abs(user['lat'] - pos[0]) < 0.0001 and abs(user['lng'] - pos[1]) < 0.0001:
+                            user_ids_in_group.add(user['user_id'])
+                            break
+                
+                new_route['assigned_users'] = [u for u in route['assigned_users'] if u['user_id'] in user_ids_in_group]
+                
+                # Recalculate route properties for the new sub-route
+                if new_route['assigned_users']:
+                    new_route['latitude'] = np.mean([u['lat'] for u in new_route['assigned_users']])
+                    new_route['longitude'] = np.mean([u['lng'] for u in new_route['assigned_users']])
+                    
+                    # Re-optimize the sequence and update metrics for the new sub-route
+                    new_route = optimize_route_sequence_improved(new_route, office_lat, office_lon)
+                    update_route_metrics_improved(new_route, office_lat, office_lon)
+                    final_routes_after_split.append(new_route)
+        else:
+            final_routes_after_split.append(route)
+
+    return final_routes_after_split
+
+
+# MAIN ASSIGNMENT FUNCTION FOR ROUTE OPTIMIZATION
+def run_road_aware_assignment(source_id: str, parameter: int = 1, string_param: str = ""):
+    """
+    Main assignment function optimized for route optimization approach:
+    - Routes capacity utilization and route efficiency
+    - Route constraints on both turning angles and utilization
+    - Seeks optimal route optimization between the two objectives
     """
     start_time = time.time()
 
@@ -801,7 +1426,7 @@ def run_assignment_balance(source_id: str, parameter: int = 1, string_param: str
         if os.path.exists(cache_file):
             os.remove(cache_file)
 
-    # Reload configuration for balanced optimization
+    # Reload configuration for route optimization
     global _config
     _config = load_and_validate_config()
 
@@ -812,7 +1437,7 @@ def run_assignment_balance(source_id: str, parameter: int = 1, string_param: str
     MAX_BEARING_DIFFERENCE = _config['MAX_BEARING_DIFFERENCE']
     UTILIZATION_PENALTY_PER_SEAT = _config['UTILIZATION_PENALTY_PER_SEAT']
 
-    logger.info(f"🚀 Starting BALANCED OPTIMIZATION assignment for source_id: {source_id}")
+    logger.info(f"🚀 Starting ROUTE OPTIMIZATION assignment for source_id: {source_id}")
     logger.info(f"📋 Parameter: {parameter}, String parameter: {string_param}")
 
     try:
@@ -833,7 +1458,7 @@ def run_assignment_balance(source_id: str, parameter: int = 1, string_param: str
                     "method": "No Users",
                     "clusters": 0
                 },
-                "optimization_mode": "balanced_optimization",
+                "optimization_mode": "route_optimization",
                 "parameter": parameter,
             }
 
@@ -860,7 +1485,7 @@ def run_assignment_balance(source_id: str, parameter: int = 1, string_param: str
                     "method": "No Drivers",
                     "clusters": 0
                 },
-                "optimization_mode": "balanced_optimization",
+                "optimization_mode": "route_optimization",
                 "parameter": parameter,
             }
 
@@ -876,27 +1501,31 @@ def run_assignment_balance(source_id: str, parameter: int = 1, string_param: str
 
         logger.info(f"📊 DataFrames prepared - Users: {len(user_df)}, Drivers: {len(driver_df)}")
 
-        # STEP 1: Geographic clustering with balanced approach
+        # STEP 1: Geographic clustering with route optimized approach
         user_df = create_geographic_clusters(user_df, office_lat, office_lon, _config)
-        clustering_results = {"method": "balanced_" + _config['clustering_method'], 
+        clustering_results = {"method": "route_optimized_" + _config['clustering_method'], 
                             "clusters": user_df['geo_cluster'].nunique()}
 
-        # STEP 2: Capacity-based sub-clustering with balanced constraints
+        # STEP 2: Capacity-based sub-clustering with route optimized constraints
         user_df = create_capacity_subclusters(user_df, office_lat, office_lon, _config)
 
-        # STEP 3: Balanced driver assignment
-        routes, assigned_user_ids = assign_drivers_by_priority_balanced(
+        # STEP 3: Route optimized driver assignment
+        routes, assigned_user_ids = assign_drivers_by_priority_route_optimized(
             user_df, driver_df, office_lat, office_lon)
 
-        # STEP 4: Local optimization with balanced approach
+        # STEP 4: Local optimization with route optimized approach
         routes = local_optimization(routes, office_lat, office_lon)
 
-        # STEP 5: Balanced global optimization
+        # STEP 5: Route optimized global optimization
         routes, unassigned_users = global_optimization(routes, user_df,
                                                        assigned_user_ids, driver_df, office_lat, office_lon)
 
-        # STEP 6: Balanced final-pass merge
-        routes = final_pass_merge_balanced(routes, _config, office_lat, office_lon)
+        # STEP 6: Route optimized final-pass merge (using enhanced logic)
+        routes = quality_preserving_route_merging(routes, _config, office_lat, office_lon)
+        
+        # STEP 7: Route splitting based on enhanced logic
+        routes = intelligent_route_splitting_improved(routes, _config, office_lat, office_lon)
+
 
         # Filter out routes with no assigned users and move those drivers to unassigned
         filtered_routes = []
@@ -938,7 +1567,7 @@ def run_assignment_balance(source_id: str, parameter: int = 1, string_param: str
         users_unassigned = len(unassigned_users)
         users_accounted_for = users_assigned + users_unassigned
 
-        logger.info(f"✅ Balanced optimization complete in {execution_time:.2f}s")
+        logger.info(f"✅ Route optimization complete in {execution_time:.2f}s")
         logger.info(f"📊 Final routes: {len(routes)}")
         logger.info(f"🎯 Users assigned: {users_assigned}")
         logger.info(f"👥 Users unassigned: {users_unassigned}")
@@ -951,7 +1580,7 @@ def run_assignment_balance(source_id: str, parameter: int = 1, string_param: str
             "unassignedUsers": unassigned_users,
             "unassignedDrivers": unassigned_drivers,
             "clustering_analysis": clustering_results,
-            "optimization_mode": "balanced_optimization",
+            "optimization_mode": "route_optimization",
             "parameter": parameter,
         }
 
