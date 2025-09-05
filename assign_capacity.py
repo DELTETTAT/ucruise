@@ -145,6 +145,79 @@ from assignment import (
     analyze_assignment_quality
 )
 
+# Import road_network module for enhanced capacity optimization
+try:
+    import road_network as road_network_module
+    # Create an instance of RoadNetwork class if it exists
+    try:
+        # Try to create RoadNetwork instance (assuming GraphML file exists)
+        road_network = road_network_module.RoadNetwork('road_graph.graphml')
+        logger.info("✅ Successfully loaded RoadNetwork for capacity optimization")
+    except Exception as e:
+        logger.warning(f"Could not create RoadNetwork instance: {e}. Using mock implementation for capacity mode.")
+        class MockRoadNetworkCapacity:
+            def get_route_coherence_score(self, driver_pos, user_positions, office_pos):
+                # Capacity-focused mock: more lenient but still reasonable
+                if not user_positions:
+                    return 1.0
+                # Use more permissive scoring for capacity mode
+                avg_dist_from_driver = sum(haversine_distance(driver_pos[0], driver_pos[1], u[0], u[1]) for u in user_positions) / len(user_positions)
+                # More lenient distance penalty for capacity filling
+                score = max(0.3, 1.0 - (avg_dist_from_driver / 80.0))  # More forgiving than route mode
+                return min(1.0, score)
+
+            def get_road_distance(self, lat1, lon1, lat2, lon2):
+                # Capacity mode: use conservative road distance estimate
+                straight_dist = haversine_distance(lat1, lon1, lat2, lon2)
+                return straight_dist * 1.4  # Conservative road factor for capacity mode
+
+            def is_user_on_route_path(self, driver_pos, existing_users, candidate_pos, office_pos, max_detour_ratio=1.8, route_type="capacity"):
+                # More lenient path checking for capacity optimization
+                driver_to_candidate = self.get_road_distance(driver_pos[0], driver_pos[1], candidate_pos[0], candidate_pos[1])
+                candidate_to_office = self.get_road_distance(candidate_pos[0], candidate_pos[1], office_pos[0], office_pos[1])
+                driver_to_office = self.get_road_distance(driver_pos[0], driver_pos[1], office_pos[0], office_pos[1])
+
+                if driver_to_office <= 0:
+                    return False
+
+                total_distance = driver_to_candidate + candidate_to_office
+                detour_ratio = total_distance / driver_to_office
+
+                # More lenient detour ratio for capacity mode
+                return detour_ratio <= max_detour_ratio
+
+        road_network = MockRoadNetworkCapacity()
+except ImportError:
+    logger.warning("road_network module not found. Using capacity-optimized mock implementation.")
+    class MockRoadNetworkCapacity:
+        def get_route_coherence_score(self, driver_pos, user_positions, office_pos):
+            # Capacity-focused mock implementation
+            if not user_positions:
+                return 1.0
+            avg_dist_from_driver = sum(haversine_distance(driver_pos[0], driver_pos[1], u[0], u[1]) for u in user_positions) / len(user_positions)
+            # More lenient scoring for capacity mode
+            score = max(0.3, 1.0 - (avg_dist_from_driver / 80.0))
+            return min(1.0, score)
+
+        def get_road_distance(self, lat1, lon1, lat2, lon2):
+            straight_dist = haversine_distance(lat1, lon1, lat2, lon2)
+            return straight_dist * 1.4  # Conservative estimate
+
+        def is_user_on_route_path(self, driver_pos, existing_users, candidate_pos, office_pos, max_detour_ratio=1.8, route_type="capacity"):
+            driver_to_candidate = self.get_road_distance(driver_pos[0], driver_pos[1], candidate_pos[0], candidate_pos[1])
+            candidate_to_office = self.get_road_distance(candidate_pos[0], candidate_pos[1], office_pos[0], office_pos[1])
+            driver_to_office = self.get_road_distance(driver_pos[0], driver_pos[1], office_pos[0], office_pos[1])
+
+            if driver_to_office <= 0:
+                return False
+
+            total_distance = driver_to_candidate + candidate_to_office
+            detour_ratio = total_distance / driver_to_office
+            return detour_ratio <= max_detour_ratio
+
+    road_network = MockRoadNetworkCapacity()
+
+
 # Load validated configuration - always capacity optimization
 _config = load_and_validate_config()
 MAX_FILL_DISTANCE_KM = _config['MAX_FILL_DISTANCE_KM']
@@ -198,55 +271,89 @@ def assign_drivers_by_priority_capacity_focused(user_df, driver_df, office_lat, 
         users_for_vehicle = []
         max_distance_limit = MAX_FILL_DISTANCE_KM * 2  # Allow more distance for capacity
         max_bearing_deviation = 45  # Allow 45 degrees deviation for capacity mode
-        
+
         # Calculate distances and bearings from driver to all unassigned users
         candidate_users = []
         for _, user in all_unassigned_users.iterrows():
             distance = haversine_distance(driver['latitude'], driver['longitude'], 
                                         user['latitude'], user['longitude'])
-            
+
             # Calculate bearing from driver to user
             user_bearing = calculate_bearing(driver['latitude'], driver['longitude'], 
                                            user['latitude'], user['longitude'])
-            
+
             # Calculate bearing from office to user (to ensure general same direction)
             office_to_user_bearing = calculate_bearing(office_lat, office_lon, 
                                                      user['latitude'], user['longitude'])
-            
+
             # Check directional consistency
             bearing_diff_from_main = bearing_difference(main_route_bearing, office_to_user_bearing)
-            
-            # Accept users that are in the same general direction
+
+            # Basic directional and distance check
             if (distance <= max_distance_limit and 
                 bearing_diff_from_main <= max_bearing_deviation):
-                candidate_users.append((distance, bearing_diff_from_main, user))
+
+                # ROAD NETWORK VALIDATION: Check if user is reachable via reasonable road route
+                driver_pos = (driver['latitude'], driver['longitude'])
+                user_pos = (user['latitude'], user['longitude'])
+                office_pos = (office_lat, office_lon)
+
+                # Use more lenient detour ratio for capacity mode (1.8 instead of 1.3)
+                if road_network.is_user_on_route_path(driver_pos, [], user_pos, office_pos, 
+                                                    max_detour_ratio=1.8, route_type="capacity"):
+                    # Calculate road distance for more accurate sorting
+                    road_distance = road_network.get_road_distance(driver['latitude'], driver['longitude'], 
+                                                                 user['latitude'], user['longitude'])
+                    candidate_users.append((road_distance, bearing_diff_from_main, user))
+                else:
+                    # Log rejected users for capacity mode debugging
+                    logger.debug(f"  🛣️ User {user['user_id']} rejected: road route not feasible for capacity mode")
         
-        # Sort by distance first, then by bearing alignment
+        # Sort by road distance first, then by bearing alignment
         candidate_users.sort(key=lambda x: (x[0], x[1]))
         
-        # Take users to fill the vehicle while maintaining direction
-        for distance, bearing_diff, user in candidate_users:
+        # Take users to fill the vehicle while maintaining direction and road coherence
+        for road_dist, bearing_diff, user in candidate_users:
             if len(users_for_vehicle) >= vehicle_capacity:
                 break
             
-            # Additional directional check: ensure new user doesn't create zigzag
+            # Enhanced validation: directional consistency + road network coherence
             if len(users_for_vehicle) > 0:
                 # Check if adding this user maintains route directional consistency
                 test_users = users_for_vehicle + [user]
                 if not is_directionally_consistent(test_users, driver_pos, (office_lat, office_lon)):
                     continue
+
+                # ROAD NETWORK COHERENCE CHECK: Ensure route remains coherent
+                test_user_positions = [(u['latitude'], u['longitude']) for u in test_users]
+                coherence_score = road_network.get_route_coherence_score(driver_pos, test_user_positions, (office_lat, office_lon))
+
+                # More lenient coherence threshold for capacity mode (0.4 instead of 0.6)
+                if coherence_score < 0.4:
+                    logger.debug(f"  🗺️ User {user['user_id']} rejected: low road coherence {coherence_score:.2f} for capacity route")
+                    continue
             
             users_for_vehicle.append(user)
 
-        # Try to fill remaining seats with nearby users even if slightly off-direction
+        # Try to fill remaining seats with road network validation
         if len(users_for_vehicle) < vehicle_capacity and len(candidate_users) > len(users_for_vehicle):
             remaining_candidates = [user for _, _, user in candidate_users[len(users_for_vehicle):]]
-            
+
             for user in remaining_candidates[:vehicle_capacity - len(users_for_vehicle)]:
-                # More lenient check for remaining seats
+                # More lenient directional check for remaining seats
                 test_users = users_for_vehicle + [user]
                 if is_directionally_consistent(test_users, driver_pos, (office_lat, office_lon), lenient=True):
-                    users_for_vehicle.append(user)
+
+                    # ROAD NETWORK VALIDATION: Even for remaining seats, ensure reasonable routes
+                    test_user_positions = [(u['latitude'], u['longitude']) for u in test_users]
+                    coherence_score = road_network.get_route_coherence_score(driver_pos, test_user_positions, (office_lat, office_lon))
+
+                    # Very lenient threshold for remaining capacity filling (0.3)
+                    if coherence_score >= 0.3:
+                        users_for_vehicle.append(user)
+                        logger.debug(f"  🎯 Added user {user['user_id']} to fill remaining capacity (coherence: {coherence_score:.2f})")
+                    else:
+                        logger.debug(f"  🚫 User {user['user_id']} rejected for remaining seat: poor road coherence {coherence_score:.2f}")
 
         if len(users_for_vehicle) >= 2:  # Minimum viable route
             # Create route with directionally consistent users
@@ -264,7 +371,7 @@ def assign_drivers_by_priority_capacity_focused(user_df, driver_df, office_lat, 
                 
                 logger.info(f"  🧭 Driver {driver['driver_id']}: {len(route['assigned_users'])}/{vehicle_capacity} seats filled ({len(route['assigned_users'])/vehicle_capacity*100:.1f}%) - Directional")
 
-    # Second pass: Try to fill remaining seats with directional constraints
+    # Second pass: Try to fill remaining seats with directional constraints and road network validation
     remaining_users = all_unassigned_users[~all_unassigned_users['user_id'].isin(assigned_user_ids)]
     
     for route in routes:
@@ -279,16 +386,16 @@ def assign_drivers_by_priority_capacity_focused(user_df, driver_df, office_lat, 
         route_bearing = calculate_average_bearing_improved(route, office_lat, office_lon)
         route_center = calculate_route_center_improved(route)
         
-        # Find remaining users that fit the route direction
+        # Find remaining users that fit the route direction with road network validation
         compatible_users = []
         for _, user in remaining_users.iterrows():
             distance = haversine_distance(route_center[0], route_center[1],
                                         user['latitude'], user['longitude'])
-            
+
             # Check if user is in same direction as route
             user_bearing = calculate_bearing(office_lat, office_lon, user['latitude'], user['longitude'])
             bearing_diff = bearing_difference(route_bearing, user_bearing)
-            
+
             if distance <= MAX_FILL_DISTANCE_KM * 1.5 and bearing_diff <= 30:  # Directional constraint
                 # Test if adding this user maintains directional consistency
                 test_users = route['assigned_users'] + [{
@@ -296,16 +403,30 @@ def assign_drivers_by_priority_capacity_focused(user_df, driver_df, office_lat, 
                     'lat': float(user['latitude']),
                     'lng': float(user['longitude'])
                 }]
-                
+
                 driver_pos = (route['latitude'], route['longitude'])
                 if is_directionally_consistent_from_dicts(test_users, driver_pos, (office_lat, office_lon)):
-                    compatible_users.append((distance, user))
+
+                    # ROAD NETWORK VALIDATION: Check route coherence impact
+                    current_user_positions = [(u['lat'], u['lng']) for u in route['assigned_users']]
+                    test_user_positions = current_user_positions + [(user['latitude'], user['longitude'])]
+
+                    coherence_score = road_network.get_route_coherence_score(driver_pos, test_user_positions, (office_lat, office_lon))
+
+                    # Lenient threshold for second pass (0.35)
+                    if coherence_score >= 0.35:
+                        # Use road distance for more accurate sorting
+                        road_distance = road_network.get_road_distance(route_center[0], route_center[1],
+                                                                     user['latitude'], user['longitude'])
+                        compatible_users.append((road_distance, user))
+                    else:
+                        logger.debug(f"  🛣️ User {user['user_id']} rejected in second pass: low coherence {coherence_score:.2f}")
         
-        # Sort by distance and add users
+        # Sort compatible users by road distance and add them to the route
         compatible_users.sort(key=lambda x: x[0])
         users_to_add = []
         
-        for distance, user in compatible_users[:available_seats]:
+        for road_dist, user in compatible_users[:available_seats]:
             users_to_add.append(user)
         
         # Add users to route

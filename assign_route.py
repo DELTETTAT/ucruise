@@ -27,7 +27,7 @@ try:
     # Create an instance of RoadNetwork class if it exists
     try:
         # Try to create RoadNetwork instance (assuming GraphML file exists)
-        road_network = road_network_module.RoadNetwork('road_graph.graphml')
+        road_network = road_network_module.RoadNetwork('tricity_main_roads.graphml')
         logger.info("Successfully loaded RoadNetwork with GraphML data")
     except Exception as e:
         logger.warning(f"Could not create RoadNetwork instance: {e}. Using mock implementation.")
