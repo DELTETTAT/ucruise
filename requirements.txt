@@ -1,13 +1,14 @@
-# for api purpose
-fastapi
-requests
 
-# for data preprocessing
+fastapi
+uvicorn[standard]
+pydantic
+requests
+python-dotenv
 numpy
 pandas
-
-# for machine-learning
 scikit-learn
-
-# for loading api in code
-python-dotenv
+scipy
+networkx
+python-multipart
+jinja2
+aiofiles
