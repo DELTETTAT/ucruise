@@ -323,8 +323,22 @@ def load_env_and_fetch_data(source_id: str,
     }
 
     logger.info(f"📡 Making API call to: {API_URL}")
-    resp = requests.get(API_URL, headers=headers)
-    resp.raise_for_status()
+    logger.info(f"📡 Headers: {headers}")
+
+    try:
+        resp = requests.get(API_URL, headers=headers, timeout=30)
+        logger.info(f"📡 Response status: {resp.status_code}")
+        logger.info(f"📡 Response headers: {dict(resp.headers)}")
+        logger.info(f"📡 Response text length: {len(resp.text)}")
+        logger.info(f"📡 Response text preview: {resp.text[:500]}")
+
+        resp.raise_for_status()
+    except requests.exceptions.Timeout:
+        raise ValueError(f"API request timed out after 30 seconds. URL: {API_URL}")
+    except requests.exceptions.ConnectionError:
+        raise ValueError(f"Failed to connect to API. URL: {API_URL}")
+    except requests.exceptions.HTTPError as e:
+        raise ValueError(f"API returned HTTP error {resp.status_code}: {resp.text}")
 
     # Check if response body is empty
     if len(resp.text.strip()) == 0:
@@ -336,7 +350,11 @@ def load_env_and_fetch_data(source_id: str,
 
     try:
         payload = resp.json()
+        logger.info(f"📡 Parsed JSON payload keys: {list(payload.keys()) if isinstance(payload, dict) else 'Not a dict'}")
+        logger.info(f"📡 Payload: {json.dumps(payload, indent=2)[:1000]}")
     except json.JSONDecodeError as e:
+        logger.error(f"📡 Failed to parse JSON: {e}")
+        logger.error(f"📡 Raw response: {resp.text}")
         raise ValueError(
             f"API returned invalid JSON. "
             f"Status: {resp.status_code}, "
@@ -344,12 +362,27 @@ def load_env_and_fetch_data(source_id: str,
             f"Response body: '{resp.text[:200]}...', "
             f"JSON Error: {str(e)}")
 
-    if not payload.get("status") or "data" not in payload:
-        raise ValueError(
-            "Unexpected response format: 'status' or 'data' missing")
+    # Check if payload is null
+    if payload is None:
+        raise ValueError(f"API returned null/None response. URL: {API_URL}")
+
+    if not isinstance(payload, dict):
+        raise ValueError(f"API returned non-object response: {type(payload)}. Response: {payload}")
+
+    if not payload.get("status"):
+        logger.warning(f"📡 No 'status' field in response: {payload}")
+
+    if "data" not in payload:
+        logger.warning(f"📡 No 'data' field in response: {payload}")
+        raise ValueError(f"Unexpected response format: 'data' missing. Available keys: {list(payload.keys())}")
 
     # Use the provided parameters
     data = payload["data"]
+
+    # Check if data is null
+    if data is None:
+        raise ValueError(f"API returned null data field. Full response: {payload}")
+
     data["_parameter"] = parameter
     data["_string_param"] = string_param
 
@@ -736,7 +769,7 @@ def create_bearing_aware_subclusters(geo_cluster_users, user_df,
 
     current_cluster_users = []
 
-    for idx, (user_idx, user) in enumerate(sorted_users.iterrows()):
+    for idx, user in sorted_users.iterrows():
         # Check if adding this user would violate bearing constraints
         if current_cluster_users:
             bearing_spread = calculate_bearing_spread(
@@ -751,7 +784,7 @@ def create_bearing_aware_subclusters(geo_cluster_users, user_df,
                 sub_cluster_counter += 1
                 current_cluster_users = []
 
-        current_cluster_users.append((user_idx, user))
+        current_cluster_users.append((idx, user))
 
     # Assign remaining users
     if current_cluster_users:
@@ -2023,8 +2056,7 @@ def fix_single_user_routes_improved(routes, user_df, assigned_user_ids,
             multi_user_routes.append(route)
 
     logger.info(
-        f"    📊 Found {len(single_user_routes)} single-user routes to optimize"
-    )
+        f"    📊 Found {len(single_user_routes)} single-user routes to optimize")
 
     # Strategy 1: Merge single users into compatible multi-user routes
     routes_to_keep = []
@@ -3682,7 +3714,7 @@ def _get_all_drivers_as_unassigned(data):
 
     unassigned_drivers = []
     for driver in all_drivers:
-        unassigned_drivers.append({
+        driver_data = {
             'driver_id':
             str(driver.get('id', '')),
             'capacity':
@@ -3693,7 +3725,8 @@ def _get_all_drivers_as_unassigned(data):
             float(driver.get('latitude', 0.0)),
             'longitude':
             float(driver.get('longitude', 0.0))
-        })
+        }
+        unassigned_drivers.append(driver_data)
     return unassigned_drivers
 
 

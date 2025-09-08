@@ -943,7 +943,7 @@ def _find_optimal_road_based_split(driver_pos, user_positions, office_pos):
 
 def perform_quality_merge_improved(routes, config, office_lat, office_lon):
     """
-    Perform route merging with enhanced quality checks, including road network awareness.
+    Performs route merging with enhanced quality checks, including road network awareness.
     This function merges routes based on proximity, capacity, and road path compatibility.
     """
     logger.info("🔄 Performing enhanced route merging with road network awareness...")
@@ -1002,8 +1002,8 @@ def perform_quality_merge_improved(routes, config, office_lat, office_lon):
                 'driver_id': route1['driver_id'], # Arbitrarily pick one driver ID for the merged route
                 'vehicle_id': route1['vehicle_id'],
                 'vehicle_type': max_capacity,
-                'latitude': (center1[0] * len(route1['assigned_users']) + center2[0] * len(route2['assigned_users'])) / total_users,
-                'longitude': (center1[1] * len(route1['assigned_users']) + center2[1] * len(route2['assigned_users'])) / total_users,
+                'latitude': (center1[0] * len(route1['assigned_users']) + center2[0] * len(route2['assigned_users'])) / total_users if total_users > 0 else center1[0],
+                'longitude': (center1[1] * len(route1['assigned_users']) + center2[1] * len(route2['assigned_users'])) / total_users if total_users > 0 else center1[1],
                 'assigned_users': route1['assigned_users'] + route2['assigned_users']
             }
 
@@ -1011,28 +1011,8 @@ def perform_quality_merge_improved(routes, config, office_lat, office_lon):
             merged_route_candidate = optimize_route_sequence_improved(merged_route_candidate, office_lat, office_lon)
             update_route_metrics_improved(merged_route_candidate, office_lat, office_lon)
 
-            # Evaluate quality
-            turning_score = merged_route_candidate.get('turning_score', 0)
-            tortuosity = merged_route_candidate.get('tortuosity_ratio', 1.0)
-            utilization = total_users / max_capacity
-
-            # Road network coherence for the merged route
-            coherence = 0.0
-            if road_network:
-                driver_pos = (merged_route_candidate['latitude'], merged_route_candidate['longitude'])
-                user_positions = [(u['lat'], u['lng']) for u in merged_route_candidate['assigned_users']]
-                coherence = road_network.get_route_coherence_score(driver_pos, user_positions, (office_lat, office_lon))
-
-            # Route optimized scoring for merge quality
-            # Prioritize efficiency (turning, tortuosity) and road coherence, then capacity
-            efficiency_score = (turning_score / MERGE_TURNING_THRESHOLD) + (tortuosity / MERGE_TORTUOSITY_THRESHOLD)
-            coherence_score = coherence / 0.7 # Normalize coherence
-            capacity_score = (1.0 - utilization) * 2 # Penalty for underutilization
-
-            # Route optimized weighting for merge decision
-            merge_score = (efficiency_score * 0.4 + 
-                           coherence_score * 0.4 + 
-                           capacity_score * 0.2)
+            # Calculate quality score
+            merge_score = calculate_merge_quality_score(route1, route2, merged_route_candidate, office_lat, office_lon, config)
 
             if merge_score < best_merge_score:
                 best_merge_score = merge_score
@@ -1059,26 +1039,29 @@ def perform_quality_merge_improved(routes, config, office_lat, office_lon):
         should_split, split_groups = _should_split_route_by_road_network(route, office_lat, office_lon)
         if should_split:
             logger.info(f"  🚗 Splitting route {route['driver_id']} based on road network analysis.")
-            # Convert split groups back to route format
+            # Create new routes from the split groups
             for group_positions in split_groups:
                 new_route = route.copy()
-                # Find original user data for the positions
+                # Filter assigned users based on positions
                 user_ids_in_group = set()
                 for pos in group_positions:
                     for user in route['assigned_users']:
+                        # Using a small tolerance for floating point comparisons
                         if abs(user['lat'] - pos[0]) < 0.0001 and abs(user['lng'] - pos[1]) < 0.0001:
                             user_ids_in_group.add(user['user_id'])
                             break
                 
                 new_route['assigned_users'] = [u for u in route['assigned_users'] if u['user_id'] in user_ids_in_group]
-                # Update route center and driver position for the new route
+                
+                # Recalculate route properties for the new sub-route
                 if new_route['assigned_users']:
                     new_route['latitude'] = np.mean([u['lat'] for u in new_route['assigned_users']])
                     new_route['longitude'] = np.mean([u['lng'] for u in new_route['assigned_users']])
+                    
+                    # Re-optimize the sequence and update metrics for the new sub-route
                     new_route = optimize_route_sequence_improved(new_route, office_lat, office_lon)
                     update_route_metrics_improved(new_route, office_lat, office_lon)
                     final_routes_after_split.append(new_route)
-                
         else:
             final_routes_after_split.append(route)
 
@@ -1158,7 +1141,6 @@ def intelligent_route_splitting_improved(routes, config, office_lat, office_lon)
             # For simplicity, we'll just log this and assume the road network split logic
             # or subsequent optimization will handle it. A more complex implementation
             # would involve actual splitting logic here.
-            # In a real scenario, you might call a function like `split_route_by_bearing_improved` or similar.
             
             # Placeholder for actual splitting logic if needed:
             # For now, we just add the original route and log the potential split.
@@ -1262,8 +1244,8 @@ def calculate_merge_quality_score(route1, route2, merged_route, office_lat, offi
 
     # Combine all factors. For simplicity, let's aim to minimize a composite score.
     # Lower scores are better.
-    # Score: efficiency_penalty + capacity_penalty - coherence_bonus
-    # We want to minimize this composite score.
+    # Higher turning, tortuosity, capacity penalty increase the score.
+    # Higher coherence decreases the score.
     
     # Let's define a score where lower is better.
     # Higher turning, tortuosity, capacity penalty increase the score.
@@ -1369,12 +1351,12 @@ def perform_quality_merge_improved(routes, config, office_lat, office_lon):
         if i not in used_route_indices:
             merged_routes.append(routes[i])
 
-    # Final check for road network split logic (applying split to the merged routes)
+    # Final check for road network split logic
     final_routes_after_split = []
     for route in merged_routes:
         should_split, split_groups = _should_split_route_by_road_network(route, office_lat, office_lon)
         if should_split:
-            logger.info(f"  🚗 Splitting merged route {route['driver_id']} based on road network analysis.")
+            logger.info(f"  🚗 Splitting route {route['driver_id']} based on road network analysis.")
             # Create new routes from the split groups
             for group_positions in split_groups:
                 new_route = route.copy()
@@ -1460,6 +1442,7 @@ def run_road_aware_assignment(source_id: str, parameter: int = 1, string_param: 
                 },
                 "optimization_mode": "route_optimization",
                 "parameter": parameter,
+                "string_param": string_param
             }
 
         # Get all drivers
@@ -1487,6 +1470,7 @@ def run_road_aware_assignment(source_id: str, parameter: int = 1, string_param: 
                 },
                 "optimization_mode": "route_optimization",
                 "parameter": parameter,
+                "string_param": string_param
             }
 
         logger.info(f"📥 Data loaded - Users: {len(users)}, Total Drivers: {len(all_drivers)}")
@@ -1573,7 +1557,8 @@ def run_road_aware_assignment(source_id: str, parameter: int = 1, string_param: 
         logger.info(f"👥 Users unassigned: {users_unassigned}")
         logger.info(f"📋 User accounting: {users_accounted_for}/{total_users_in_api} users")
 
-        return {
+        # Final result with comprehensive logging
+        result = {
             "status": "true",
             "execution_time": execution_time,
             "data": routes,
@@ -1582,14 +1567,58 @@ def run_road_aware_assignment(source_id: str, parameter: int = 1, string_param: 
             "clustering_analysis": clustering_results,
             "optimization_mode": "route_optimization",
             "parameter": parameter,
+            "string_param": string_param,
         }
 
+        # Log final result for debugging
+        logger.info(f"📤 ROUTE OPTIMIZATION returning result: {len(routes)} routes, {users_assigned} users assigned")
+        logger.info(f"📤 Result status: {result['status']}")
+
+        # Save result to debug file
+        debug_file = f"debug_route_result_{source_id}_{parameter}.json"
+        with open(debug_file, "w") as f:
+            import json
+            json.dump(result, f, indent=2)
+        logger.info(f"📁 Debug result saved to: {debug_file}")
+
+        return result
+
     except requests.exceptions.RequestException as req_err:
-        logger.error(f"API request failed: {req_err}")
-        return {"status": "false", "details": str(req_err), "data": []}
+        logger.error(f"❌ API request failed: {req_err}")
+        error_result = {
+            "status": "false", 
+            "details": f"API request failed: {str(req_err)}", 
+            "data": [],
+            "unassignedUsers": [],
+            "unassignedDrivers": [],
+            "parameter": parameter,
+            "string_param": string_param
+        }
+        logger.info(f"📤 ROUTE OPTIMIZATION error response: {error_result}")
+        return error_result
     except ValueError as val_err:
-        logger.error(f"Data validation error: {val_err}")
-        return {"status": "false", "details": str(val_err), "data": []}
+        logger.error(f"❌ Data validation error: {val_err}")
+        error_result = {
+            "status": "false", 
+            "details": f"Data validation error: {str(val_err)}", 
+            "data": [],
+            "unassignedUsers": [],
+            "unassignedDrivers": [],
+            "parameter": parameter,
+            "string_param": string_param
+        }
+        logger.info(f"📤 ROUTE OPTIMIZATION error response: {error_result}")
+        return error_result
     except Exception as e:
-        logger.error(f"Assignment failed: {e}", exc_info=True)
-        return {"status": "false", "details": str(e), "data": []}
+        logger.error(f"❌ Assignment failed: {e}", exc_info=True)
+        error_result = {
+            "status": "false", 
+            "details": f"Assignment failed: {str(e)}", 
+            "data": [],
+            "unassignedUsers": [],
+            "unassignedDrivers": [],
+            "parameter": parameter,
+            "string_param": string_param
+        }
+        logger.info(f"📤 ROUTE OPTIMIZATION error response: {error_result}")
+        return error_result

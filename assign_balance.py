@@ -1,4 +1,3 @@
-
 import os
 import math
 import requests
@@ -250,7 +249,7 @@ def simple_balanced_clustering(user_df, config):
 
 
 def create_balanced_capacity_subclusters(user_df, office_lat, office_lon, config):
-    """Create balanced capacity subclusters - independent implementation"""
+    """Create balanced capacity sub-clusters - independent implementation"""
     if len(user_df) == 0:
         return user_df
 
@@ -1620,6 +1619,7 @@ def run_assignment_balance(source_id: str, parameter: int = 1, string_param: str
                 "clustering_analysis": {"method": "No Users", "clusters": 0},
                 "optimization_mode": "balanced_optimization",
                 "parameter": parameter,
+                "string_param": string_param,
             }
         
         # Get all drivers
@@ -1644,6 +1644,7 @@ def run_assignment_balance(source_id: str, parameter: int = 1, string_param: str
                 "clustering_analysis": {"method": "No Drivers", "clusters": 0},
                 "optimization_mode": "balanced_optimization",
                 "parameter": parameter,
+                "string_param": string_param
             }
         
         logger.info(f"📥 Data loaded - Users: {len(users)}, Total Drivers: {len(all_drivers)}")
@@ -1717,7 +1718,8 @@ def run_assignment_balance(source_id: str, parameter: int = 1, string_param: str
         logger.info(f"👥 Users unassigned: {users_unassigned}")
         logger.info(f"📋 User accounting: {users_accounted_for}/{total_users_in_api} users")
         
-        return {
+        # Final result with comprehensive logging
+        result = {
             "status": "true",
             "execution_time": execution_time,
             "data": routes,
@@ -1726,14 +1728,58 @@ def run_assignment_balance(source_id: str, parameter: int = 1, string_param: str
             "clustering_analysis": clustering_results,
             "optimization_mode": "balanced_optimization",
             "parameter": parameter,
+            "string_param": string_param,
         }
-        
+
+        # Log final result for debugging
+        logger.info(f"📤 BALANCED OPTIMIZATION returning result: {len(routes)} routes, {users_assigned} users assigned")
+        logger.info(f"📤 Result status: {result['status']}")
+
+        # Save result to debug file
+        debug_file = f"debug_balance_result_{source_id}_{parameter}.json"
+        with open(debug_file, "w") as f:
+            import json
+            json.dump(result, f, indent=2)
+        logger.info(f"📁 Debug result saved to: {debug_file}")
+
+        return result
+
     except requests.exceptions.RequestException as req_err:
-        logger.error(f"API request failed: {req_err}")
-        return {"status": "false", "details": str(req_err), "data": []}
+        logger.error(f"❌ API request failed: {req_err}")
+        error_result = {
+            "status": "false", 
+            "details": f"API request failed: {str(req_err)}", 
+            "data": [],
+            "unassignedUsers": [],
+            "unassignedDrivers": [],
+            "parameter": parameter,
+            "string_param": string_param
+        }
+        logger.info(f"📤 BALANCED OPTIMIZATION error response: {error_result}")
+        return error_result
     except ValueError as val_err:
-        logger.error(f"Data validation error: {val_err}")
-        return {"status": "false", "details": str(val_err), "data": []}
+        logger.error(f"❌ Data validation error: {val_err}")
+        error_result = {
+            "status": "false", 
+            "details": f"Data validation error: {str(val_err)}", 
+            "data": [],
+            "unassignedUsers": [],
+            "unassignedDrivers": [],
+            "parameter": parameter,
+            "string_param": string_param
+        }
+        logger.info(f"📤 BALANCED OPTIMIZATION error response: {error_result}")
+        return error_result
     except Exception as e:
-        logger.error(f"Assignment failed: {e}", exc_info=True)
-        return {"status": "false", "details": str(e), "data": []}
+        logger.error(f"❌ Assignment failed: {e}", exc_info=True)
+        error_result = {
+            "status": "false", 
+            "details": f"Assignment failed: {str(e)}", 
+            "data": [],
+            "unassignedUsers": [],
+            "unassignedDrivers": [],
+            "parameter": parameter,
+            "string_param": string_param
+        }
+        logger.info(f"📤 BALANCED OPTIMIZATION error response: {error_result}")
+        return error_result

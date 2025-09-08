@@ -982,7 +982,7 @@ def run_assignment_capacity(source_id: str,
         if duplicates:
             logger.info(f"🔧 Removed {len(duplicates)} duplicate assignments")
 
-        return {
+        result = {
             "status": "true",
             "execution_time": execution_time,
             "data": routes,
@@ -991,17 +991,23 @@ def run_assignment_capacity(source_id: str,
             "clustering_analysis": clustering_results,
             "optimization_mode": "capacity_optimization",
             "parameter": parameter,
+            "string_param": string_param
         }
+
+        logger.info(f"🚀 CAPACITY OPTIMIZATION returning result with {len(routes)} routes")
+        logger.info(f"📊 Response structure: {list(result.keys())}")
+
+        return result
 
     except requests.exceptions.RequestException as req_err:
         logger.error(f"API request failed: {req_err}")
-        return {"status": "false", "details": str(req_err), "data": []}
+        return {"status": "false", "details": str(req_err), "data": [], "parameter": parameter, "string_param": string_param}
     except ValueError as val_err:
         logger.error(f"Data validation error: {val_err}")
-        return {"status": "false", "details": str(val_err), "data": []}
+        return {"status": "false", "details": str(val_err), "data": [], "parameter": parameter, "string_param": string_param}
     except Exception as e:
         logger.error(f"Assignment failed: {e}", exc_info=True)
-        return {"status": "false", "details": str(e), "data": []}
+        return {"status": "false", "details": str(e), "data": [], "parameter": parameter, "string_param": string_param}
 
 
 def final_pass_merge_capacity_focused(routes, config, office_lat, office_lon):

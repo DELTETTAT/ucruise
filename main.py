@@ -32,19 +32,67 @@ def assign_drivers(source_id: str, parameter: int, string_param: str):
         # Use automatic API-based routing like run_and_view.py
         result = run_assignment(source_id, parameter, string_param)
 
-        if result["status"] == "true":
-            logger.info(f"✅ Assignment successful. Routes: {len(result['data'])}")
-            with open("drivers_and_routes.json", "w") as f:
+        logger.info(f"🔍 Assignment result type: {type(result)}")
+        logger.info(f"🔍 Assignment result keys: {list(result.keys()) if isinstance(result, dict) else 'Not a dict'}")
+
+        if result is None:
+            logger.error("❌ Assignment returned None")
+            return {"status": "false", "details": "Assignment returned None", "data": [], "parameter": parameter, "string_param": string_param}
+
+        if not isinstance(result, dict):
+            logger.error(f"❌ Assignment returned non-dict: {type(result)}")
+            return {"status": "false", "details": f"Assignment returned {type(result)}", "data": [], "parameter": parameter, "string_param": string_param}
+
+        # Ensure we have the required fields
+        if "status" not in result:
+            logger.warning("⚠️ No 'status' field in result, adding default")
+            result["status"] = "true"
+        
+        if "data" not in result:
+            logger.warning("⚠️ No 'data' field in result, adding empty array")
+            result["data"] = []
+
+        # Add parameter info if missing
+        if "parameter" not in result:
+            result["parameter"] = parameter
+        if "string_param" not in result:
+            result["string_param"] = string_param
+
+        if result.get("status") == "true":
+            logger.info(f"✅ Assignment successful. Routes: {len(result.get('data', []))}")
+            routes_data = result.get("data", [])
+            
+            # Dump the full result to a file for debugging
+            full_response_file = f"full_response_{source_id}_{parameter}.json"
+            with open(full_response_file, "w") as f:
                 import json
-                json.dump(result["data"], f, indent=2)
+                json.dump(result, f, indent=2)
+            logger.info(f"📁 Full response dumped to: {full_response_file}")
+            
+            # Also save routes for visualization compatibility
+            if routes_data:
+                with open("drivers_and_routes.json", "w") as f:
+                    json.dump(routes_data, f, indent=2)
+                logger.info("📁 Routes saved to drivers_and_routes.json")
         else:
             logger.error(f"❌ Assignment failed: {result.get('details', 'Unknown error')}")
 
+        # Log the final response being sent
+        logger.info(f"📤 Sending response: status={result.get('status')}, data_count={len(result.get('data', []))}")
+        
         return result
 
     except Exception as e:
         logger.error(f"❌ Server error: {e}", exc_info=True)
-        return {"status": "false", "details": f"Server error: {str(e)}", "data": [], "parameter": 1, "string_param": ""}
+        error_response = {
+            "status": "false", 
+            "details": f"Server error: {str(e)}", 
+            "data": [], 
+            "parameter": parameter, 
+            "string_param": string_param
+        }
+        logger.info(f"📤 Sending error response: {error_response}")
+        return error_response
 
 @app.get("/routes")
 def get_routes():
